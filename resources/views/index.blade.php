@@ -311,7 +311,7 @@
             position: absolute;
             inset: 28px 0 0;
             border-radius: 28px;
-            background: linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(233, 244, 255, .94));
+            /* background: linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(233, 244, 255, .94)); */
             border: 1px solid rgba(255, 255, 255, .8);
             box-shadow: 0 45px 100px rgba(0, 0, 0, .32), inset 0 1px rgba(255, 255, 255, 1);
             padding: 18px;
@@ -393,7 +393,7 @@
         .metric {
             padding: 11px;
             border-radius: 13px;
-            background: rgba(255, 255, 255, .82);
+            /* background: rgba(255, 255, 255, .82); */
             border: 1px solid #e1edf8
         }
 
@@ -410,7 +410,7 @@
         .chart {
             height: 125px;
             border-radius: 15px;
-            background: rgba(255, 255, 255, .88);
+            /* background: rgba(255, 255, 255, .88); */
             border: 1px solid #e1edf8;
             position: relative;
             overflow: hidden
@@ -1794,8 +1794,8 @@
                             <div class="floating-chip chip3"><i class="fa-solid fa-indian-rupee-sign"></i> ₹42,500
                                 Collected</div>
                             <div class="dashboard-card">
-                                <div class="placeholder-note"><strong>Your Library Dashboard Image</strong>Add your
-                                    actual dashboard screenshot here</div>
+                                <!-- <div class="placeholder-note"><strong>Your Library Dashboard Image</strong>Add your
+                                    actual dashboard screenshot here</div> -->
                                 <div class="dash-top"><span class="dot"></span><span class="dot"></span><span
                                         class="dot"></span></div>
                                 <div class="dash-body">
