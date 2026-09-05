@@ -933,6 +933,23 @@
             transform: none
         }
 
+        .cta:after {
+            content: "";
+            position: absolute;
+            width: 320px;
+            height: 320px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, .07);
+            right: -70px;
+            top: -100px;
+            pointer-events: none;
+        }
+
+        .cta .btn {
+            position: relative;
+            z-index: 5;
+        }
+
         .delay-1 {
             transition-delay: .08s
         }
@@ -2129,9 +2146,12 @@
                         <p class="mb-0 opacity-75">Register once, configure your seats and memberships, and manage your
                             entire study space from one powerful dashboard.</p>
                     </div>
-                    <div class="col-lg-4 text-lg-end"><a href="#"
-                            class="btn btn-light btn-lg rounded-4 px-4 fw-bold">Create My Library <i
-                                class="fa-solid fa-arrow-right ms-2"></i></a></div>
+                    <div class="col-lg-4 text-lg-end">
+                        <a href="/library-registration" class="btn btn-light btn-lg rounded-4 px-4 fw-bold">
+                            Create My Library
+                            <i class="fa-solid fa-arrow-right ms-2"></i>
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
