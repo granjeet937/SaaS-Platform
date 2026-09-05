@@ -1775,7 +1775,7 @@
                     <li><a class="nav-link" href="#pricing">Pricing</a></li>
                     <li><a class="nav-link" href="#contact">Contact</a></li>
                 </ul>
-                <div class="d-flex gap-2 ms-lg-auto mt-3 mt-lg-0"><a href="#login" class="btn btn-ghost">Login</a><a
+                <div class="d-flex gap-2 ms-lg-auto mt-3 mt-lg-0"><a href="/library-login" class="btn btn-ghost">Login</a><a
                         href="#register" class="btn btn-main">Get Started <i
                             class="fa-solid fa-arrow-right ms-1"></i></a></div>
             </div>
