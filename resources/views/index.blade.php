@@ -263,7 +263,7 @@
                         <span class="badge bg-primary text-white position-absolute top-0 end-0 m-3">POPULAR</span>
                         <h5 class="fw-bold">Starter</h5>
                         <div class="font-head fs-1 fw-bold mt-2 text-primary">₹999 <small class="fs-6 text-muted">/ 3
-                                Mos</small></div>
+                                Months</small></div>
                         <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
                             <li><i class="fa-solid fa-check text-success me-2"></i> Up to 200 students</li>
                             <li><i class="fa-solid fa-check text-success me-2"></i> All core modules</li>
@@ -276,7 +276,7 @@
                 <div class="col-md-6 col-lg-3 reveal">
                     <div class="card h-100 p-4 rounded-4 border glass-card shadow-sm">
                         <h5 class="fw-bold">Pro</h5>
-                        <div class="font-head fs-1 fw-bold mt-2">₹1,499 <small class="fs-6 text-muted">/ 6 Mos</small>
+                        <div class="font-head fs-1 fw-bold mt-2">₹1,499 <small class="fs-6 text-muted">/ 6 Months</small>
                         </div>
                         <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
                             <li><i class="fa-solid fa-check text-success me-2"></i> Up to 500 students</li>
@@ -290,7 +290,7 @@
                 <div class="col-md-6 col-lg-3 reveal">
                     <div class="card h-100 p-4 rounded-4 border glass-card shadow-sm">
                         <h5 class="fw-bold">Business</h5>
-                        <div class="font-head fs-1 fw-bold mt-2">₹2,499 <small class="fs-6 text-muted">/ 1 Yr</small>
+                        <div class="font-head fs-1 fw-bold mt-2">₹2,499 <small class="fs-6 text-muted">/ 1 Year</small>
                         </div>
                         <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
                             <li><i class="fa-solid fa-check text-success me-2"></i> Unlimited students</li>
