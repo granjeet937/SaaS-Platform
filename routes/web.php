@@ -13,3 +13,7 @@ Route::get('/library-login', function () {
 Route::get('/library-registration', function () {
     return view('registration');
 });
+
+Route::get('/library-dashboard', function () {
+    return view('dashboard');
+});
