@@ -9,8 +9,6 @@
                 <div class="col-xl-11">
                     <div class="card border-0 rounded-4 shadow-lg overflow-hidden">
                         <div class="row g-0">
-
-                            <!-- Left Panel (Desktop View) -->
                             <div
                                 class="col-lg-4 p-4 p-md-5 text-white d-none d-lg-flex flex-column justify-content-between bg-dark position-relative">
                                 <div>
@@ -18,7 +16,6 @@
                                         class="badge bg-white bg-opacity-10 text-info border border-white border-opacity-25 px-3 py-1 rounded-pill small mb-3">
                                         LMSP ONBOARDING
                                     </span>
-
                                     <h2 class="font-head fw-bold mt-2">Start managing your library smarter.</h2>
 
                                     <p class="text-light text-opacity-75 small mt-3">
@@ -147,7 +144,7 @@
                                         </div>
 
                                         <!-- Logo Upload -->
-                                        <div class="col-12">
+                                        {{-- <div class="col-12">
                                             <label class="form-label small fw-bold text-secondary">Library Logo
                                                 (Optional)</label>
                                             <div
@@ -167,7 +164,7 @@
                                                         WEBP · Recommended square ratio</div>
                                                 </div>
                                             </div>
-                                        </div>
+                                        </div> --}}
                                     </div>
 
                                     <!-- Section 2: Owner Credentials -->

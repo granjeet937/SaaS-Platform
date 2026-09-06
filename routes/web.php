@@ -7,9 +7,9 @@ Route::get('/', function () {
 });
 
 Route::get('/library-login', function () {
-    return view('login');
+    return view('library.login');
 });
 
 Route::get('/library-registration', function () {
-    return view('registration');
+    return view('library.registration');
 });
