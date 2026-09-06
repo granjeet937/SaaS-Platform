@@ -91,7 +91,7 @@
                                     </div>
                                 @endif
 
-                                <form id="registerForm" method="POST" action="{{ url('/library-registration') }}"
+                                <form id="registerForm" method="POST" action="{{ url('/library_registration_store') }}"
                                     enctype="multipart/form-data" novalidate>
                                     @csrf
 
@@ -193,9 +193,8 @@
                                             </label>
                                             <input type="tel"
                                                 class="form-control @error('owner_mobile') is-invalid @enderror"
-                                                name="owner_mobile" value="{{ old('owner_mobile') }}"
-                                                inputmode="numeric" maxlength="10" placeholder="10-digit number"
-                                                required>
+                                                name="owner_mobile" value="{{ old('owner_mobile') }}" inputmode="numeric"
+                                                maxlength="10" placeholder="10-digit number" required>
                                             <div class="invalid-feedback">Enter a valid 10-digit phone number.</div>
                                             @error('owner_mobile')
                                                 <div class="text-danger small mt-1">{{ $message }}</div>
@@ -239,8 +238,8 @@
                                             </label>
                                             <div class="input-group">
                                                 <input type="password" class="form-control rounded-start-3"
-                                                    id="confirmPassword" name="confirm_password"
-                                                    placeholder="Re-enter password" required>
+                                                    id="confirmPassword" name="password_confirmation"
+                                                    placeholder="Re-enter password" autocomplete="new-password" required>
                                                 <button
                                                     class="btn btn-outline-secondary border-start-0 rounded-end-3 password-toggle"
                                                     type="button" data-target="confirmPassword">
@@ -384,7 +383,8 @@
 
                                     <!-- Terms & Conditions -->
                                     <div class="form-check mb-4">
-                                        <input class="form-check-input" type="checkbox" id="terms" required>
+                                        <input class="form-check-input" type="checkbox" name="terms" id="terms"
+                                            required>
                                         <label class="form-check-label small text-muted" for="terms">
                                             I agree to the <a href="#"
                                                 class="text-primary text-decoration-none fw-semibold">Terms of Service</a>
@@ -428,22 +428,22 @@
         const form = document.getElementById('registerForm');
         const pwd = document.getElementById('password');
         const cPwd = document.getElementById('confirmPassword');
-        const logoInput = document.getElementById('logo');
-        const logoImg = document.getElementById('logoImg');
-        const logoIcon = document.querySelector('#logoPreview i');
+        // const logoInput = document.getElementById('logo');
+        // const logoImg = document.getElementById('logoImg');
+        // const logoIcon = document.querySelector('#logoPreview i');
 
         // Logo Preview logic
-        logoInput.addEventListener('change', () => {
-            const file = logoInput.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = e => {
-                logoImg.src = e.target.result;
-                logoImg.classList.remove('d-none');
-                logoIcon.classList.add('d-none');
-            };
-            reader.readAsDataURL(file);
-        });
+        // logoInput.addEventListener('change', () => {
+        //     const file = logoInput.files?.[0];
+        //     if (!file) return;
+        //     const reader = new FileReader();
+        //     reader.onload = e => {
+        //         logoImg.src = e.target.result;
+        //         logoImg.classList.remove('d-none');
+        //         logoIcon.classList.add('d-none');
+        //     };
+        //     reader.readAsDataURL(file);
+        // });
 
         // Password View Toggle
         document.querySelectorAll('.password-toggle').forEach(btn => {
