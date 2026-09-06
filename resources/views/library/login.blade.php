@@ -9,8 +9,6 @@
                 <div class="col-xl-10">
                     <div class="card border-0 rounded-4 shadow-lg overflow-hidden">
                         <div class="row g-0">
-
-                            <!-- Left Panel (Desktop View) -->
                             <div
                                 class="col-lg-5 p-4 p-md-5 text-white d-none d-lg-flex flex-column justify-content-between bg-dark position-relative">
                                 <div>
@@ -103,10 +101,8 @@
                                     </div>
                                 @endif
 
-                                <form id="loginForm" method="POST" action="{{ url('/library-login') }}" novalidate>
+                                <form id="loginForm" method="POST" action="{{ url('/library-loginLMSP') }}" novalidate>
                                     @csrf
-
-                                    <!-- Email Input -->
                                     <div class="mb-3">
                                         <label class="form-label small fw-bold text-secondary">
                                             Email Address <span class="text-danger">*</span>
@@ -214,7 +210,6 @@
         const email = document.getElementById('email');
         const password = document.getElementById('password');
 
-        // Password Toggle
         document.getElementById('togglePassword').addEventListener('click', function() {
             const icon = this.querySelector('i');
             const isPassword = password.type === 'password';
@@ -223,7 +218,6 @@
             icon.classList.toggle('fa-eye-slash', isPassword);
         });
 
-        // Native Bootstrap Validation (.is-invalid class)
         [email, password].forEach(input => {
             input.addEventListener('input', () => {
                 input.classList.remove('is-invalid');

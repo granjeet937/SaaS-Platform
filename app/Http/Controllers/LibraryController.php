@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
 
 class LibraryController extends Controller
 {
@@ -44,19 +46,16 @@ class LibraryController extends Controller
 
         try {
             $library = DB::transaction(function () use ($request, $validated) {
-                // 1. Logo upload handling
                 $logoPath = null;
                 if ($request->hasFile('logo')) {
                     $logoPath = $request->file('logo')->store('libraries/logos', 'public');
                     Log::info('Library logo uploaded successfully.', ['path' => $logoPath]);
                 }
 
-                // 2. Unique library code generator
                 do {
                     $libraryCode = 'LIB-' . strtoupper(Str::random(8));
                 } while (Library::where('library_code', $libraryCode)->exists());
 
-                // 3. Create Library record
                 $library = Library::create([
                     'library_code' => $libraryCode,
                     'library_type' => $validated['library_type'],
@@ -71,7 +70,6 @@ class LibraryController extends Controller
                     'status'       => 'pending',
                 ]);
 
-                // 4. Create Owner/Admin User
                 $user = User::create([
                     'library_id' => $library->id,
                     'name'       => $validated['owner_name'],
@@ -104,7 +102,84 @@ class LibraryController extends Controller
 
             return back()
                 ->withInput($request->except(['password', 'password_confirmation']))
-                ->with('error', 'Registration failed. Please check the logs or try again.');
+                ->with('error', 'Registration failed. Please try again.');
         }
+    }
+    public function loginLMSP(Request $request)
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:191',],
+
+            'password' => ['required', 'string', 'min:8',],
+        ]);
+        $throttleKey = Str::transliterate(
+            Str::lower($validated['email']) . '|' . $request->ip()
+        );
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            return back()->withInput($request->only('email'))->with('error', "Too many login attempts. Please try again in {$seconds} seconds.");
+        }
+        $remember = $request->boolean('remember');
+
+        if (!Auth::attempt([
+            'email' => $validated['email'],
+            'password' => $validated['password'],
+        ], $remember)) {
+
+            RateLimiter::hit($throttleKey, 60);
+            return back()->withInput($request->only('email'))->with('error', 'Invalid email or password.');
+        }
+        RateLimiter::clear($throttleKey);
+        $request->session()->regenerate();
+        $user = Auth::user();
+        if ($user->role !== 'library_admin') {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            return redirect('/library-login')->with('error', 'You are not authorized to access the library panel.');
+        }
+        if (!$user->library) {
+
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            return redirect('/library-login')->with('error', 'Library account is not properly configured.');
+        }
+
+        if ($user->library->status !== 'active') {
+
+            Auth::logout();
+
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect('/library-login')
+                ->with('error', 'Your library account is currently pending approval.');
+        }
+
+        return redirect('library-dashboard')->with('success', 'Welcome back to LMSP.');
+    }
+
+    public function logout(Request $request)
+    {
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect('/library-login')
+            ->with('success', 'You have been logged out successfully.');
+    }
+        public function dashboard()
+    {
+        $user = Auth::user();
+
+        $library = $user->library;
+
+        return view('library.dashboard', [
+            'user' => $user,
+            'library' => $library,
+        ]);
     }
 }
