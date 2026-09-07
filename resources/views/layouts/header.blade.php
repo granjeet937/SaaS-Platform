@@ -44,11 +44,11 @@
                         </button>
                     </form>
                 @else
-                    <a href="{{ url('/library-login') }}" class="btn btn-outline-primary fw-bold rounded-3 px-3 py-2">
+                    <a href="{{ url('/library-login') }}" class="btn btn-outline-primary fw-bold rounded-3 px-3 mx-1 py-2">
                         Login
                     </a>
 
-                    <a href="{{ url('/library-registration') }}" class="btn btn-main rounded-3 px-3 py-1">
+                    <a href="{{ url('/library-registration') }}" class="btn btn-main rounded-3 px-3 py-2">
                         Get Started
                         <i class="fa-solid fa-arrow-right ms-1"></i>
                     </a>

@@ -5,7 +5,7 @@
 @section('content')
     <!-- Hero Section -->
     <header class="hero-section text-white pb-5 position-relative" id="home">
-        <div class="container-xxl px-4 px-lg-5 py-4">
+        <div class="container-xxl px-4 px-lg-5 py-1">
             <div class="row align-items-center g-5">
                 <div class="col-lg-6 reveal">
                     <div
@@ -111,7 +111,7 @@
     </header>
 
     <!-- Stats Strip -->
-    <section class="position-relative z-2" style="margin-top: -35px;">
+    <section class="position-relative">
         <div class="container-xxl px-3 px-lg-5">
             <div class="glass-card shadow-sm rounded-4 p-3 border">
                 <div class="row g-3 text-center text-lg-start">
@@ -141,8 +141,8 @@
     </section>
 
     <!-- Features Grid -->
-    <section class="py-5" id="features">
-        <div class="container-xxl px-4 px-lg-5 py-4">
+    <section class="py-3" id="features">
+        <div class="container-xxl px-4 px-lg-5 py-1">
             <div class="text-center col-lg-8 mx-auto mb-5 reveal">
                 <span
                     class="badge bg-primary-subtle text-primary fw-bold text-uppercase px-3 py-2 rounded-pill small">Features</span>
@@ -200,8 +200,8 @@
     </section>
 
     <!-- Why Us Section -->
-    <section class="py-5 bg-soft">
-        <div class="container-xxl px-4 px-lg-5 py-4">
+    <section class="py-3 bg-soft">
+        <div class="container-xxl px-4 px-lg-5 py-1">
             <div class="row align-items-center g-5">
                 <div class="col-lg-6 reveal">
                     <div class="card border-dashed p-5 text-center bg-white bg-opacity-50 rounded-4 border-2">
@@ -236,8 +236,8 @@
     </section>
 
     <!-- Pricing -->
-    <section class="py-5" id="pricing">
-        <div class="container-xxl px-4 px-lg-5 py-4">
+    <section class="py-3" id="pricing">
+        <div class="container-xxl px-4 px-lg-5 py-1">
             <div class="text-center col-lg-8 mx-auto mb-5 reveal">
                 <span
                     class="badge bg-primary-subtle text-primary fw-bold text-uppercase px-3 py-2 rounded-pill small">Plans</span>
@@ -306,7 +306,7 @@
     </section>
 
     <!-- Call to Action -->
-    <section class="py-5" id="register">
+    <section class="py-3" id="register">
         <div class="container-xxl px-4 px-lg-5">
             <div class="bg-dark text-white p-5 rounded-4 shadow-lg position-relative overflow-hidden"
                 style="background: radial-gradient(circle at 90% 10%, rgba(53, 213, 255, .25), transparent 25%), linear-gradient(125deg, #07162e, #0a3261 65%, #0f7cff) !important;">
