@@ -2,9 +2,15 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\LibraryController;
+use App\Models\Plan;
 
 Route::get('/', function () {
-    return view('index');
+
+    $plans = Plan::where('status', 1)
+        ->orderBy('price', 'asc')
+        ->get();
+
+    return view('index', compact('plans'));
 });
 
 Route::get('/library-login', function () {

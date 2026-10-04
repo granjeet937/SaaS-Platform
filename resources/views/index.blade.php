@@ -245,62 +245,57 @@
                 <p class="text-muted">Flexible options based on your library seating capacity.</p>
             </div>
             <div class="row g-4 align-items-stretch">
-                <div class="col-md-6 col-lg-3 reveal">
-                    <div class="card h-100 p-4 rounded-4 border glass-card shadow-sm">
-                        <h5 class="fw-bold">Free Trial</h5>
-                        <div class="font-head fs-1 fw-bold mt-2">₹0 <small class="fs-6 text-muted">/ 30 days</small></div>
-                        <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Up to 50 students</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Daily attendance</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Seat assignments</li>
-                        </ul>
-                        <a href="{{ url('/library-registration') }}"
-                            class="btn btn-outline-primary rounded-3 w-100 mt-auto">Get Started</a>
-                    </div>
-                </div>
-                <div class="col-md-6 col-lg-3 reveal">
-                    <div class="card h-100 p-4 rounded-4 border-2 border-primary glass-card shadow position-relative">
-                        <span class="badge bg-primary text-white position-absolute top-0 end-0 m-3">POPULAR</span>
-                        <h5 class="fw-bold">Starter</h5>
-                        <div class="font-head fs-1 fw-bold mt-2 text-primary">₹999 <small class="fs-6 text-muted">/ 3
-                                Months</small></div>
-                        <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Up to 200 students</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> All core modules</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Expiry reminders</li>
-                        </ul>
-                        <a href="{{ url('/library-registration') }}" class="btn btn-main rounded-3 w-100 mt-auto">Start
-                            Plan</a>
-                    </div>
-                </div>
-                <div class="col-md-6 col-lg-3 reveal">
-                    <div class="card h-100 p-4 rounded-4 border glass-card shadow-sm">
-                        <h5 class="fw-bold">Pro</h5>
-                        <div class="font-head fs-1 fw-bold mt-2">₹1,499 <small class="fs-6 text-muted">/ 6 Months</small>
+                @foreach ($plans as $plan)
+                    <div class="col-md-6 col-lg-3 reveal">
+
+                        <div
+                            class="card h-100 p-4 rounded-4 border
+            {{ $plan->is_popular ? 'border-2 border-primary shadow position-relative' : 'glass-card shadow-sm' }}">
+
+                            @if ($plan->is_popular)
+                                <span class="badge bg-primary text-white position-absolute top-0 end-0 m-3">
+                                    POPULAR
+                                </span>
+                            @endif
+
+                            <h5 class="fw-bold">
+                                {{ $plan->name }}
+                            </h5>
+
+                            <div
+                                class="font-head fs-1 fw-bold mt-2
+                {{ $plan->is_popular ? 'text-primary' : '' }}">
+                                ₹{{ number_format($plan->price, 0) }}
+
+                                <small class="fs-6 text-muted">
+                                    / {{ $plan->duration_label }}
+                                </small>
+
+                            </div>
+
+                            <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
+
+                                @foreach ($plan->features as $feature)
+                                    <li>
+                                        <i class="fa-solid fa-check text-success me-2"></i>
+                                        {{ $feature }}
+                                    </li>
+                                @endforeach
+
+                            </ul>
+
+                            <a href="{{ url('/library-registration') }}"
+                                class="btn {{ $plan->is_popular ? 'btn-main' : 'btn-outline-primary' }}
+                      rounded-3 w-100 mt-auto">
+
+                                {{ $plan->name == 'Free Trial' ? 'Get Started' : 'Choose Plan' }}
+
+                            </a>
+
                         </div>
-                        <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Up to 500 students</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Reports & exports</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Priority support</li>
-                        </ul>
-                        <a href="{{ url('/library-registration') }}"
-                            class="btn btn-outline-primary rounded-3 w-100 mt-auto">Choose Pro</a>
+
                     </div>
-                </div>
-                <div class="col-md-6 col-lg-3 reveal">
-                    <div class="card h-100 p-4 rounded-4 border glass-card shadow-sm">
-                        <h5 class="fw-bold">Business</h5>
-                        <div class="font-head fs-1 fw-bold mt-2">₹2,499 <small class="fs-6 text-muted">/ 1 Year</small>
-                        </div>
-                        <ul class="list-unstyled small text-muted my-4 d-flex flex-column gap-2">
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Unlimited students</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Multi-branch feature</li>
-                            <li><i class="fa-solid fa-check text-success me-2"></i> Dedicated manager</li>
-                        </ul>
-                        <a href="{{ url('/library-registration') }}"
-                            class="btn btn-outline-primary rounded-3 w-100 mt-auto">Contact Sales</a>
-                    </div>
-                </div>
+                @endforeach
             </div>
         </div>
     </section>

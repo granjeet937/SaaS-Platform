@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
-
+use App\Models\Plan;
+use App\Models\Subscription;
+use Carbon\Carbon;
 class LibraryController extends Controller
 {
     public function create()
@@ -84,7 +86,18 @@ class LibraryController extends Controller
                     'library_code' => $library->library_code,
                     'user_id'      => $user->id
                 ]);
+                $freePlan = Plan::where('slug', 'free-trial')
+                    ->where('status', 1)
+                    ->firstOrFail();
 
+                Subscription::create([
+                    'library_id' => $library->id,
+                    'plan_id' => $freePlan->id,
+                    'start_date' => Carbon::today(),
+                    'end_date' => Carbon::today()->addDays($freePlan->duration_days),
+                    'status' => 'active',
+                    'payment_status' => 'not_required',
+                ]);
                 return $library;
             });
 
@@ -148,16 +161,16 @@ class LibraryController extends Controller
             return redirect('/library-login')->with('error', 'Library account is not properly configured.');
         }
 
-        if ($user->library->status !== 'active') {
+        // if ($user->library->status !== 'active') {
 
-            Auth::logout();
+        //     Auth::logout();
 
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
+        //     $request->session()->invalidate();
+        //     $request->session()->regenerateToken();
 
-            return redirect('/library-login')
-                ->with('error', 'Your library account is currently pending approval.');
-        }
+        //     return redirect('/library-login')
+        //         ->with('error', 'Your library account is currently pending approval.');
+        // }
 
         return redirect('library-dashboard')->with('success', 'Welcome back to LMSP.');
     }
@@ -171,7 +184,7 @@ class LibraryController extends Controller
         return redirect('/library-login')
             ->with('success', 'You have been logged out successfully.');
     }
-        public function dashboard()
+    public function dashboard()
     {
         $user = Auth::user();
 
