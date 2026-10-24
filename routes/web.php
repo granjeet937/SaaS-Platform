@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\LibraryController;
+use App\Http\Controllers\StudentController;
 use App\Models\Plan;
 
 Route::get('/', function () {
@@ -31,4 +32,7 @@ Route::middleware('auth')->group(function () {
         LibraryController::class,
         'dashboard'
     ]);
+    Route::get('/library/students', [StudentController::class, 'index']);
+    Route::get('/library/students/add', [StudentController::class, 'create']);
+    Route::post('/library/students/store', [StudentController::class, 'store']);
 });

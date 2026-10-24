@@ -1,4 +1,3 @@
-
 <body>
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
     <div class="main">
@@ -80,7 +79,48 @@
                     </div>
                 </div>
             </section>
+            @php
+                // Subscription details are provided by the dashboard controller.
+            @endphp
 
+            @if ($subscription)
+                <div class="card border-0 shadow-sm rounded-4 mb-4">
+                    <div class="card-body p-4">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                            <div>
+                                <h5 class="fw-bold mb-2">
+                                    {{ $subscription->plan->name ?? 'Current Plan' }}
+                                </h5>
+
+                                <p class="text-muted mb-1">
+                                    Start Date:
+                                    {{ $subscription->start_date->format('d M Y') }}
+                                </p>
+
+                                <p class="text-muted mb-0">
+                                    Expiry Date:
+                                    {{ $subscription->end_date->format('d M Y') }}
+                                </p>
+                            </div>
+
+                            <span class="badge bg-success rounded-pill px-3 py-2">
+                                {{ ucfirst($subscription->status) }}
+                            </span>
+                        </div>
+
+                        @if (($subscription->plan->slug ?? '') === 'free-trial')
+                            <p class="text-muted mt-3 mb-0">
+                                You are currently using the Free Trial.
+                            </p>
+                        @endif
+                    </div>
+                </div>
+            @else
+                <div class="alert alert-warning rounded-4">
+                    Your subscription is not active.
+                    Please choose a plan to continue.
+                </div>
+            @endif
             <!-- KPIs -->
             <section class="mb-4">
                 <div class="row g-3">

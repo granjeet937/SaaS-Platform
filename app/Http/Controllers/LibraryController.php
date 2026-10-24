@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use App\Models\Plan;
 use App\Models\Subscription;
 use Carbon\Carbon;
+
 class LibraryController extends Controller
 {
     public function create()
@@ -190,9 +191,19 @@ class LibraryController extends Controller
 
         $library = $user->library;
 
+        $subscription = null;
+
+        if ($library) {
+            $subscription = $library
+                ->activeSubscription()
+                ->with('plan')
+                ->first();
+        }
+
         return view('library.dashboard', [
             'user' => $user,
             'library' => $library,
+            'subscription' => $subscription,
         ]);
     }
 }

@@ -1581,7 +1581,7 @@
 
             <div class="nav-title">Library Management</div>
 
-            <a href="#" class="side-link">
+            <a href="/library/students" class="side-link">
                 <i class="fa-solid fa-users"></i>
                 <span>Students</span>
                 <span class="nav-badge">250</span>
