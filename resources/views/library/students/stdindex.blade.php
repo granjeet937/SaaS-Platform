@@ -1,10 +1,9 @@
-@extends('layouts.app')
+@extends('layouts.library')
 
-@section('title', 'LMSP — Library Admin Login')
+@section('title', 'Add New Student — LMSP')
 
 @section('content')
-    <main class="py-5" style="margin-top: 70px;">
-        <div class="container py-4">
+        <div class="container py-2">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
                     <h2 class="fw-bold mb-1">Students</h2>
@@ -60,5 +59,4 @@
                 </div>
             </div>
         </div>
-    </main>
 @endsection
