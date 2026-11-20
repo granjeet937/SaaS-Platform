@@ -42,7 +42,7 @@
                 <i class="fa-solid fa-calendar-check"></i>
                 <span>Attendance</span>
             </a>
-            <a href="#" class="side-link">
+            <a href="/library/seats" class="side-link {{ request()->is('library/seats*') ? 'active' : '' }}">
                 <i class="fa-solid fa-chair"></i>
                 <span>Seats</span>
             </a>
@@ -50,10 +50,10 @@
                 <i class="fa-solid fa-file-lines"></i>
                 <span>Student Report</span>
             </a>
-            <a href="#" class="side-link">
+            <a href="/library/fees"
+                class="side-link {{ request()->is('library/fees*') || request()->is('library/payments*') ? 'active' : '' }}">
                 <i class="fa-solid fa-wallet"></i>
                 <span>Fees & Payments</span>
-                <span class="nav-badge">12</span>
             </a>
             <a href="#" class="side-link">
                 <i class="fa-solid fa-chart-line"></i>

@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use App\Models\Plan;
 use App\Models\Subscription;
+use App\Models\Seat;
+use App\Models\Student;
+use App\Models\StudentPayment;
 use Carbon\Carbon;
 
 class LibraryController extends Controller
@@ -188,7 +191,6 @@ class LibraryController extends Controller
     public function dashboard()
     {
         $user = Auth::user();
-
         $library = $user->library;
 
         $subscription = null;
@@ -200,10 +202,140 @@ class LibraryController extends Controller
                 ->first();
         }
 
-        return view('library.dashboard', [
-            'user' => $user,
-            'library' => $library,
-            'subscription' => $subscription,
-        ]);
+        // Default fallback stats
+        $stats = [
+            'totalStudents' => 0,
+            'activeStudents' => 0,
+            'newThisMonth' => 0,
+            'totalSeats' => 0,
+            'occupiedSeats' => 0,
+            'availableSeats' => 0,
+            'maintenanceSeats' => 0,
+            'seatOccupancyPercent' => 0,
+            'thisMonthRevenue' => 0,
+            'totalPendingDues' => 0,
+            'expiringSoonCount' => 0,
+            'collectionRatePercent' => 0,
+        ];
+
+        $seats = collect();
+        $recentStudents = collect();
+        $recentActivities = collect();
+
+        if ($library) {
+            $today = now()->startOfDay();
+            $sevenDaysLater = $today->copy()->addDays(7);
+
+            // 1. Students & 30-day cycle calculations
+            $allStudents = Student::where('library_id', $library->id)
+                ->with(['seat', 'payments' => fn($q) => $q->where('payment_status', 'paid')])
+                ->orderByDesc('id')
+                ->get();
+
+            $stats['totalStudents'] = $allStudents->count();
+            $stats['activeStudents'] = $allStudents->where('status', 'active')->count();
+            $stats['newThisMonth'] = $allStudents->filter(function ($st) {
+                return $st->admission_date && $st->admission_date->isCurrentMonth() && $st->admission_date->isCurrentYear();
+            })->count();
+
+            $totalDueAll = 0;
+            $totalPaidAll = 0;
+            $totalPendingDues = 0;
+            $expiringSoonCount = 0;
+
+            foreach ($allStudents as $st) {
+                $admissionDate = $st->admission_date ? $st->admission_date->copy()->startOfDay() : $today->copy();
+                $daysElapsed = max(0, (int) $admissionDate->diffInDays($today, false));
+                $totalMonths = (int) floor($daysElapsed / 30) + 1;
+
+                $due = round($totalMonths * (float) $st->payable_fee, 2);
+                $paid = (float) $st->payments->sum('amount');
+                $balance = max(0, round($due - $paid, 2));
+                $nextDueDate = $admissionDate->copy()->addDays($totalMonths * 30);
+
+                $st->computed_balance = $balance;
+                $st->computed_next_due = $nextDueDate;
+
+                $totalDueAll += $due;
+                $totalPaidAll += $paid;
+                $totalPendingDues += $balance;
+
+                if ($st->status === 'active' && $nextDueDate->between($today, $sevenDaysLater)) {
+                    $expiringSoonCount++;
+                }
+            }
+
+            $stats['totalPendingDues'] = round($totalPendingDues, 2);
+            $stats['expiringSoonCount'] = $expiringSoonCount;
+            $stats['collectionRatePercent'] = $totalDueAll > 0
+                ? min(100, (int) round(($totalPaidAll / $totalDueAll) * 100))
+                : 100;
+
+            // 2. Seats Stats & First 20 Seats for Mini Grid
+            $allSeats = Seat::where('library_id', $library->id)
+                ->orderBy('seat_number')
+                ->get();
+
+            $stats['totalSeats'] = $allSeats->count();
+            $stats['occupiedSeats'] = $allSeats->where('status', 'occupied')->count();
+            $stats['availableSeats'] = $allSeats->where('status', 'available')->count();
+            $stats['maintenanceSeats'] = $allSeats->where('status', 'maintenance')->count();
+            $stats['seatOccupancyPercent'] = $stats['totalSeats'] > 0
+                ? (int) round(($stats['occupiedSeats'] / $stats['totalSeats']) * 100)
+                : 0;
+
+            $seats = $allSeats->take(20);
+
+            // 3. Revenue This Month
+            $stats['thisMonthRevenue'] = (float) StudentPayment::where('library_id', $library->id)
+                ->where('payment_status', 'paid')
+                ->whereMonth('payment_date', now()->month)
+                ->whereYear('payment_date', now()->year)
+                ->sum('amount');
+
+            // 4. Recent Students (Latest 5)
+            $recentStudents = $allStudents->take(5);
+
+            // 5. Recent Activity (Combine latest admissions + latest payments)
+            $admissionEvents = $allStudents->take(4)->map(function ($st) {
+                return (object) [
+                    'type' => 'admission',
+                    'timestamp' => $st->created_at ?? now(),
+                    'title' => $st->name,
+                    'detail' => 'was added as a new student.',
+                ];
+            });
+
+            $latestPayments = StudentPayment::where('library_id', $library->id)
+                ->where('payment_status', 'paid')
+                ->with('student')
+                ->orderByDesc('id')
+                ->take(4)
+                ->get()
+                ->map(function ($pay) {
+                    return (object) [
+                        'type' => 'payment',
+                        'timestamp' => $pay->created_at ?? now(),
+                        'title' => '₹' . number_format((float) $pay->amount, 0),
+                        'detail' => 'received from ' . ($pay->student->name ?? 'Student') . '.',
+                    ];
+                });
+
+            $recentActivities = $admissionEvents
+                ->concat($latestPayments)
+                ->sortByDesc('timestamp')
+                ->take(5)
+                ->values();
+        }
+
+        return view('library.dashboard', compact(
+            'user',
+            'library',
+            'subscription',
+            'stats',
+            'seats',
+            'recentStudents',
+            'recentActivities'
+        ));
     }
 }
