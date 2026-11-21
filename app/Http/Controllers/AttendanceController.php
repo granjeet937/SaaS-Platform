@@ -34,10 +34,7 @@ class AttendanceController extends Controller
 
         $activeStudents = $studentsQuery->get();
 
-        $attendancesByStudent = StudentAttendance::where('library_id', $library->id)
-            ->whereDate('attendance_date', $date)
-            ->get()
-            ->keyBy('student_id');
+        $attendancesByStudent = StudentAttendance::where('library_id', $library->id)->whereDate('attendance_date', $date)->get()->keyBy('student_id');
 
         $presentCount = 0;
         $insideNowCount = 0;

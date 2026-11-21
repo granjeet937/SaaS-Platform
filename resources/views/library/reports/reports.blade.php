@@ -55,7 +55,6 @@
             </div>
         </div>
 
-        {{-- Top Header & Export Actions --}}
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2 no-print">
             <div>
                 <h5 class="fw-bold mb-0">Reports & Analytics</h5>
@@ -89,7 +88,6 @@
             </li>
         </ul>
 
-        {{-- Filter Bar --}}
         <div class="card border-0 shadow-sm rounded-3 mb-3 no-print">
             <div class="card-body p-3">
                 <form method="GET" action="/library/reports" class="row g-2 align-items-end">
@@ -203,7 +201,10 @@
                                     <th class="text-end">Monthly</th>
                                     <th class="text-end">Paid</th>
                                     <th class="text-end">Balance Due</th>
-                                    <th class="text-center">Days Present</th>
+                                    <th class="text-center">Present</th>
+                                    <th class="text-center">Absent</th>
+                                    <th class="pe-3">Status</th>
+                                    <th class="text-end pe-3 no-print">Parent Report</th>
                                     <th class="pe-3">Status</th>
                                 </tr>
                             </thead>
@@ -231,8 +232,28 @@
                                             ₹{{ number_format($row->balance, 0) }}
                                         </td>
                                         <td class="text-center">
-                                            <span class="badge bg-light text-dark border">{{ $row->present_days }}
+                                            <span
+                                                class="badge bg-success-subtle text-success border border-success-subtle">{{ $row->present_days }}
                                                 d</span>
+                                        </td>
+                                        <td class="text-center">
+                                            <span
+                                                class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ $row->absent_days }}
+                                                d</span>
+                                        </td>
+                                        <td class="pe-3">
+                                            @if ($row->student->status === 'active')
+                                                <span class="badge bg-success-subtle text-success">Active</span>
+                                            @else
+                                                <span class="badge bg-secondary-subtle text-secondary">Inactive</span>
+                                            @endif
+                                        </td>
+                                        <td class="text-end pe-3 no-print">
+                                            <a href="/library/reports/student/{{ $row->student->id }}"
+                                                class="btn btn-outline-primary btn-sm py-0 px-2"
+                                                title="Open Printable Parent Report">
+                                                <i class="fa-solid fa-file-invoice me-1"></i> Statement
+                                            </a>
                                         </td>
                                         <td class="pe-3">
                                             @if ($row->student->status === 'active')
@@ -306,6 +327,7 @@
                                     <th>Ref / UTR</th>
                                     <th class="text-end">Amount</th>
                                     <th class="text-end pe-3 no-print">Receipt</th>
+
                                 </tr>
                             </thead>
                             <tbody>
@@ -350,6 +372,5 @@
                 </div>
             </div>
         @endif
-
     </div>
 @endsection

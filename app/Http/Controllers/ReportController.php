@@ -193,14 +193,15 @@ class ReportController extends Controller
 
         $students = $query->orderByDesc('admission_date')->orderByDesc('id')->get();
 
-        $attendanceCounts = StudentAttendance::where('library_id', $libraryId)
+        $attendanceStats = StudentAttendance::where('library_id', $libraryId)
             ->whereIn('student_id', $students->pluck('id'))
-            ->where('status', 'present')
-            ->selectRaw('student_id, COUNT(*) as present_count')
-            ->groupBy('student_id')
-            ->pluck('present_count', 'student_id');
+            ->selectRaw("
+                student_id,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_count,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count
+            ")->groupBy('student_id')->get()->keyBy('student_id');
 
-        $rows = $students->map(function ($st) use ($today, $attendanceCounts) {
+        $rows = $students->map(function ($st) use ($today, $attendanceStats) {
             $admissionDate = $st->admission_date ? $st->admission_date->copy()->startOfDay() : $today->copy();
             $daysElapsed = max(0, (int) $admissionDate->diffInDays($today, false));
             $totalMonths = (int) floor($daysElapsed / 30) + 1;
@@ -210,6 +211,7 @@ class ReportController extends Controller
             $totalPaid = (float) $st->payments->sum('amount');
             $balance = max(0, round($totalDue - $totalPaid, 2));
             $nextDueDate = $admissionDate->copy()->addDays($totalMonths * 30);
+            $attStat = $attendanceStats->get($st->id);
 
             return (object) [
                 'student' => $st,
@@ -219,7 +221,8 @@ class ReportController extends Controller
                 'total_paid' => $totalPaid,
                 'balance' => $balance,
                 'next_due_date' => $nextDueDate,
-                'present_days' => (int) ($attendanceCounts[$st->id] ?? 0),
+                'present_days' => (int) ($attStat->present_count ?? 0),
+                'absent_days' => (int) ($attStat->absent_count ?? 0),
             ];
         });
 
@@ -280,5 +283,57 @@ class ReportController extends Controller
         ];
 
         return $payments;
+    }
+    public function studentParentReport(Request $request, $id)
+    {
+        $library = $request->user()->library;
+        abort_unless($library, 403, 'Library account not found.');
+        $student = Student::where('library_id', $library->id)
+            ->with(['seat', 'payments' => fn($q) => $q->where('payment_status', 'paid')->orderByDesc('payment_date')->orderByDesc('id')])->findOrFail($id);
+
+        $defaultFrom = $student->admission_date
+            ? $student->admission_date->copy()->max(now()->startOfMonth())->toDateString()
+            : now()->startOfMonth()->toDateString();
+
+        $fromDate = $request->query('from_date', $defaultFrom);
+        $toDate = $request->query('to_date', now()->toDateString());
+
+        $attendances = StudentAttendance::where('library_id', $library->id)
+            ->where('student_id', $student->id)->whereBetween('attendance_date', [$fromDate, $toDate])->orderByDesc('attendance_date')->get();
+
+        $presentCount = $attendances->where('status', 'present')->count();
+        $absentCount = $attendances->where('status', 'absent')->count();
+        $totalMarkedDays = $presentCount + $absentCount;
+        $attendancePercent = $totalMarkedDays > 0
+            ? (int) round(($presentCount / $totalMarkedDays) * 100)
+            : 0;
+
+        // Overall 30-day cycle fee summary
+        $today = now()->startOfDay();
+        $admissionDate = $student->admission_date ? $student->admission_date->copy()->startOfDay() : $today->copy();
+        $daysElapsed = max(0, (int) $admissionDate->diffInDays($today, false));
+        $totalMonths = (int) floor($daysElapsed / 30) + 1;
+
+        $monthlyFee = (float) $student->payable_fee;
+        $totalBilled = round($totalMonths * $monthlyFee, 2);
+        $totalPaid = (float) $student->payments->sum('amount');
+        $balanceDue = max(0, round($totalBilled - $totalPaid, 2));
+        $nextDueDate = $admissionDate->copy()->addDays($totalMonths * 30);
+
+        return view('library.reports.student_parent', compact(
+            'library',
+            'student',
+            'fromDate',
+            'toDate',
+            'attendances',
+            'presentCount',
+            'absentCount',
+            'attendancePercent',
+            'monthlyFee',
+            'totalBilled',
+            'totalPaid',
+            'balanceDue',
+            'nextDueDate'
+        ));
     }
 }

@@ -11,10 +11,7 @@ use App\Http\Controllers\ReportController;
 
 Route::get('/', function () {
 
-    $plans = Plan::where('status', 1)
-        ->orderBy('price', 'asc')
-        ->get();
-
+    $plans = Plan::where('status', 1)->orderBy('price', 'asc')->get();
     return view('index', compact('plans'));
 });
 
@@ -33,10 +30,7 @@ Route::get('/admission/{token}', [StudentController::class, 'publicRegisterForm'
 Route::post('/admission/{token}', [StudentController::class, 'publicRegisterStore'])->middleware('throttle:10,1')->name('public.admission.store');
 
 Route::middleware(['auth', EnsureKioskUnlocked::class])->group(function () {
-    Route::get('/library-dashboard', [
-        LibraryController::class,
-        'dashboard'
-    ]);
+    Route::get('/library-dashboard', [LibraryController::class, 'dashboard']);
     Route::get('/library/students', [StudentController::class, 'index']);
     Route::get('/library/students/add', [StudentController::class, 'create']);
     Route::post('/library/students/store', [StudentController::class, 'store']);
@@ -66,4 +60,5 @@ Route::middleware(['auth', EnsureKioskUnlocked::class])->group(function () {
     // Student Invite Link & Pending Approval
     Route::post('/library/students/regenerate-token', [StudentController::class, 'regenerateInviteToken']);
     Route::post('/library/students/approve/{id}', [StudentController::class, 'approvePending']);
+    Route::get('/library/reports/student/{id}', [ReportController::class, 'studentParentReport']);
 });
