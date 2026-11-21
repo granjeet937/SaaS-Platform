@@ -76,11 +76,11 @@
                 <div class="kpi-card">
                     <div class="kpi-top">
                         <div class="kpi-icon green"><i class="fa-solid fa-user-check"></i></div>
-                        <span class="trend up">0%</span>
+                        <span class="trend up">{{ $stats['attendanceRatePercent'] }}%</span>
                     </div>
                     <div class="kpi-label">Present Today</div>
-                    <div class="kpi-value">0</div>
-                    <div class="kpi-meta">Attendance module ready</div>
+                    <div class="kpi-value">{{ $stats['presentToday'] }}</div>
+                    <div class="kpi-meta">{{ $stats['attendanceRatePercent'] }}% attendance rate</div>
                 </div>
             </div>
 
@@ -131,56 +131,34 @@
                     <div class="panel-head">
                         <div>
                             <div class="panel-title">Attendance Overview</div>
-                            <div class="panel-sub">Daily attendance for the current week</div>
+                            <div class="panel-sub">Daily attendance for the last 7 days</div>
                         </div>
-                        <a href="#" class="panel-action">View Report <i class="fa-solid fa-arrow-right ms-1"></i></a>
+                        <a href="/library/attendance" class="panel-action">Open Register <i
+                                class="fa-solid fa-arrow-right ms-1"></i></a>
                     </div>
 
                     <div class="chart-wrap">
                         <div class="chart-summary">
                             <div>
-                                <div class="chart-value">0</div>
-                                <div class="chart-note">Total check-ins this week</div>
+                                <div class="chart-value">{{ $stats['weeklyCheckInsTotal'] }}</div>
+                                <div class="chart-note">Total check-ins (Last 7 days)</div>
                             </div>
                             <span class="badge rounded-pill text-bg-light">Last 7 Days</span>
                         </div>
 
                         <div class="bar-chart">
-                            <div class="bar-col">
-                                <div class="bar" style="height:52%;animation-delay:.03s"></div>
-                                <div class="bar secondary" style="height:39%;animation-delay:.06s"></div>
-                                <span class="bar-label">Mon</span>
-                            </div>
-                            <div class="bar-col">
-                                <div class="bar" style="height:66%;animation-delay:.10s"></div>
-                                <div class="bar secondary" style="height:45%;animation-delay:.13s"></div>
-                                <span class="bar-label">Tue</span>
-                            </div>
-                            <div class="bar-col">
-                                <div class="bar" style="height:74%;animation-delay:.16s"></div>
-                                <div class="bar secondary" style="height:57%;animation-delay:.19s"></div>
-                                <span class="bar-label">Wed</span>
-                            </div>
-                            <div class="bar-col">
-                                <div class="bar" style="height:69%;animation-delay:.22s"></div>
-                                <div class="bar secondary" style="height:49%;animation-delay:.25s"></div>
-                                <span class="bar-label">Thu</span>
-                            </div>
-                            <div class="bar-col">
-                                <div class="bar" style="height:86%;animation-delay:.28s"></div>
-                                <div class="bar secondary" style="height:63%;animation-delay:.31s"></div>
-                                <span class="bar-label">Fri</span>
-                            </div>
-                            <div class="bar-col">
-                                <div class="bar" style="height:80%;animation-delay:.34s"></div>
-                                <div class="bar secondary" style="height:58%;animation-delay:.37s"></div>
-                                <span class="bar-label">Sat</span>
-                            </div>
-                            <div class="bar-col">
-                                <div class="bar" style="height:92%;animation-delay:.40s"></div>
-                                <div class="bar secondary" style="height:68%;animation-delay:.43s"></div>
-                                <span class="bar-label">Sun</span>
-                            </div>
+                            @foreach ($weeklyAttendance as $idx => $dayItem)
+                                <div class="bar-col"
+                                    title="{{ $dayItem->label }}: {{ $dayItem->check_in }} In, {{ $dayItem->check_out }} Out">
+                                    <div class="bar"
+                                        style="height:{{ $dayItem->in_height }}%;animation-delay:{{ $idx * 0.05 }}s">
+                                    </div>
+                                    <div class="bar secondary"
+                                        style="height:{{ $dayItem->out_height }}%;animation-delay:{{ $idx * 0.05 + 0.03 }}s">
+                                    </div>
+                                    <span class="bar-label">{{ $dayItem->label }}</span>
+                                </div>
+                            @endforeach
                         </div>
 
                         <div class="chart-legend">
@@ -419,11 +397,11 @@
 
                         <div class="progress-row mb-0">
                             <div class="progress-head">
-                                <span>Attendance Goal</span>
-                                <span>0%</span>
+                                <span>Today's Attendance</span>
+                                <span>{{ $stats['attendanceRatePercent'] }}%</span>
                             </div>
                             <div class="progress">
-                                <div class="progress-bar" style="width:0%"></div>
+                                <div class="progress-bar" style="width:{{ $stats['attendanceRatePercent'] }}%"></div>
                             </div>
                         </div>
                     </div>
@@ -446,10 +424,10 @@
                             <div class="quick-sub">Create new student profile</div>
                         </a>
 
-                        <a href="#" class="quick">
+                        <a href="/library/attendance" class="quick">
                             <div class="quick-icon"><i class="fa-solid fa-user-check"></i></div>
                             <div class="quick-title">Mark Attendance</div>
-                            <div class="quick-sub">Check-in students quickly</div>
+                            <div class="quick-sub">Register & Kiosk mode</div>
                         </a>
 
                         <a href="/library/seats" class="quick">

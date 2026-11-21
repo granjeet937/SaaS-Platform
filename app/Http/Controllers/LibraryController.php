@@ -17,6 +17,7 @@ use App\Models\Seat;
 use App\Models\Student;
 use App\Models\StudentPayment;
 use Carbon\Carbon;
+use App\Models\StudentAttendance;
 
 class LibraryController extends Controller
 {
@@ -125,10 +126,10 @@ class LibraryController extends Controller
     public function loginLMSP(Request $request)
     {
         $validated = $request->validate([
-            'email' => ['required', 'email', 'max:191',],
-
-            'password' => ['required', 'string', 'min:8',],
+            'email' => ['required', 'email', 'max:191'],
+            'password' => ['required', 'string', 'min:8'],
         ]);
+
         $throttleKey = Str::transliterate(
             Str::lower($validated['email']) . '|' . $request->ip()
         );
@@ -136,45 +137,62 @@ class LibraryController extends Controller
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
 
-            return back()->withInput($request->only('email'))->with('error', "Too many login attempts. Please try again in {$seconds} seconds.");
+            return back()
+                ->withInput($request->only('email'))
+                ->with('error', "Too many login attempts. Please try again in {$seconds} seconds.");
         }
+
         $remember = $request->boolean('remember');
 
         if (!Auth::attempt([
             'email' => $validated['email'],
             'password' => $validated['password'],
         ], $remember)) {
-
             RateLimiter::hit($throttleKey, 60);
-            return back()->withInput($request->only('email'))->with('error', 'Invalid email or password.');
+
+            return back()
+                ->withInput($request->only('email'))
+                ->with('error', 'Invalid email or password.');
         }
+
         RateLimiter::clear($throttleKey);
         $request->session()->regenerate();
         $user = Auth::user();
+
         if ($user->role !== 'library_admin') {
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
-            return redirect('/library-login')->with('error', 'You are not authorized to access the library panel.');
-        }
-        if (!$user->library) {
 
+            return redirect('/library-login')
+                ->with('error', 'You are not authorized to access the library panel.');
+        }
+
+        if (!$user->library) {
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
-            return redirect('/library-login')->with('error', 'Library account is not properly configured.');
+
+            return redirect('/library-login')
+                ->with('error', 'Library account is not properly configured.');
         }
 
-        // if ($user->library->status !== 'active') {
+        $maxDevices = 2;
+        $currentSessionId = $request->session()->getId();
 
-        //     Auth::logout();
+        $otherSessions = \Illuminate\Support\Facades\DB::table('sessions')
+            ->where('user_id', $user->id)
+            ->where('id', '!=', $currentSessionId)
+            ->orderByDesc('last_activity')
+            ->pluck('id');
 
-        //     $request->session()->invalidate();
-        //     $request->session()->regenerateToken();
+        if ($otherSessions->count() >= $maxDevices) {
+            $sessionsToDelete = $otherSessions->slice($maxDevices - 1);
 
-        //     return redirect('/library-login')
-        //         ->with('error', 'Your library account is currently pending approval.');
-        // }
+            \Illuminate\Support\Facades\DB::table('sessions')
+                ->whereIn('id', $sessionsToDelete)
+                ->delete();
+        }
 
         return redirect('library-dashboard')->with('success', 'Welcome back to LMSP.');
     }
@@ -202,11 +220,13 @@ class LibraryController extends Controller
                 ->first();
         }
 
-        // Default fallback stats
         $stats = [
             'totalStudents' => 0,
             'activeStudents' => 0,
             'newThisMonth' => 0,
+            'presentToday' => 0,
+            'attendanceRatePercent' => 0,
+            'weeklyCheckInsTotal' => 0,
             'totalSeats' => 0,
             'occupiedSeats' => 0,
             'availableSeats' => 0,
@@ -221,12 +241,12 @@ class LibraryController extends Controller
         $seats = collect();
         $recentStudents = collect();
         $recentActivities = collect();
+        $weeklyAttendance = collect();
 
         if ($library) {
             $today = now()->startOfDay();
             $sevenDaysLater = $today->copy()->addDays(7);
 
-            // 1. Students & 30-day cycle calculations
             $allStudents = Student::where('library_id', $library->id)
                 ->with(['seat', 'payments' => fn($q) => $q->where('payment_status', 'paid')])
                 ->orderByDesc('id')
@@ -271,7 +291,44 @@ class LibraryController extends Controller
                 ? min(100, (int) round(($totalPaidAll / $totalDueAll) * 100))
                 : 100;
 
-            // 2. Seats Stats & First 20 Seats for Mini Grid
+            // 2. Live Attendance Stats (Today + Last 7 Days)
+            $stats['presentToday'] = StudentAttendance::where('library_id', $library->id)
+                ->whereDate('attendance_date', $today->toDateString())
+                ->where('status', 'present')
+                ->count();
+
+            $stats['attendanceRatePercent'] = $stats['activeStudents'] > 0
+                ? min(100, (int) round(($stats['presentToday'] / $stats['activeStudents']) * 100))
+                : 0;
+
+            $start7Days = $today->copy()->subDays(6);
+            $last7Records = StudentAttendance::where('library_id', $library->id)
+                ->whereBetween('attendance_date', [$start7Days->toDateString(), $today->toDateString()])
+                ->where('status', 'present')
+                ->get()
+                ->groupBy(fn($item) => $item->attendance_date->toDateString());
+
+            $maxDaily = max(1, $stats['activeStudents']);
+
+            for ($i = 6; $i >= 0; $i--) {
+                $day = $today->copy()->subDays($i);
+                $dateKey = $day->toDateString();
+                $dayRows = $last7Records->get($dateKey, collect());
+
+                $checkInCount = $dayRows->count();
+                $checkOutCount = $dayRows->whereNotNull('check_out_time')->count();
+                $stats['weeklyCheckInsTotal'] += $checkInCount;
+
+                $weeklyAttendance->push((object) [
+                    'label' => $day->format('D'),
+                    'check_in' => $checkInCount,
+                    'check_out' => $checkOutCount,
+                    'in_height' => $checkInCount > 0 ? max(12, min(100, (int) round(($checkInCount / $maxDaily) * 100))) : 6,
+                    'out_height' => $checkOutCount > 0 ? max(10, min(100, (int) round(($checkOutCount / $maxDaily) * 100))) : 4,
+                ]);
+            }
+
+            // 3. Seats Stats & First 20 Seats
             $allSeats = Seat::where('library_id', $library->id)
                 ->orderBy('seat_number')
                 ->get();
@@ -286,17 +343,16 @@ class LibraryController extends Controller
 
             $seats = $allSeats->take(20);
 
-            // 3. Revenue This Month
+            // 4. Revenue This Month
             $stats['thisMonthRevenue'] = (float) StudentPayment::where('library_id', $library->id)
                 ->where('payment_status', 'paid')
                 ->whereMonth('payment_date', now()->month)
                 ->whereYear('payment_date', now()->year)
                 ->sum('amount');
 
-            // 4. Recent Students (Latest 5)
+            // 5. Recent Students & Activity
             $recentStudents = $allStudents->take(5);
 
-            // 5. Recent Activity (Combine latest admissions + latest payments)
             $admissionEvents = $allStudents->take(4)->map(function ($st) {
                 return (object) [
                     'type' => 'admission',
@@ -335,7 +391,8 @@ class LibraryController extends Controller
             'stats',
             'seats',
             'recentStudents',
-            'recentActivities'
+            'recentActivities',
+            'weeklyAttendance'
         ));
     }
 }

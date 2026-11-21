@@ -38,7 +38,7 @@
                 <span>Students</span>
                 <span class="nav-badge">250</span>
             </a>
-            <a href="#" class="side-link">
+            <a href="/library/attendance" class="side-link {{ request()->is('library/attendance*') ? 'active' : '' }}">
                 <i class="fa-solid fa-calendar-check"></i>
                 <span>Attendance</span>
             </a>
@@ -78,7 +78,7 @@
         <div class="side-footer">
             <div class="powered-by">
                 <span>Powered by</span>
-                <strong>LMSP</strong>
+                <strong>Aqvion Technologies</strong>
                 <span class="version">v1.0.0</span>
             </div>
         </div>

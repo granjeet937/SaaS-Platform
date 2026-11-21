@@ -5,6 +5,8 @@ use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\StudentController;
 use App\Models\Plan;
 use App\Http\Controllers\SeatController;
+use App\Http\Controllers\AttendanceController;
+use App\Http\Middleware\EnsureKioskUnlocked;
 
 Route::get('/', function () {
 
@@ -27,8 +29,7 @@ Route::get('/library-registration', function () {
 });
 
 
-Route::middleware('auth')->group(function () {
-
+Route::middleware(['auth', EnsureKioskUnlocked::class])->group(function () {
     Route::get('/library-dashboard', [
         LibraryController::class,
         'dashboard'
@@ -46,4 +47,14 @@ Route::middleware('auth')->group(function () {
     Route::post('/library/seats/update-section', [SeatController::class, 'updateSection']);
     Route::post('/library/students/toggle-status/{id}', [StudentController::class, 'toggleStatus']);
     Route::post('/library/students/delete/{id}', [StudentController::class, 'destroy']);
+    Route::get('/library/attendance', [AttendanceController::class, 'index']);
+    Route::post('/library/attendance/check-in/{studentId}', [AttendanceController::class, 'checkIn']);
+    Route::post('/library/attendance/check-out/{studentId}', [AttendanceController::class, 'checkOut']);
+    Route::post('/library/attendance/mark-absent/{studentId}', [AttendanceController::class, 'markAbsent']);
+    Route::post('/library/attendance/mark-all-present', [AttendanceController::class, 'markAllPresent']);
+    // Kiosk Self-Attendance Mode
+    Route::get('/library/attendance/kiosk', [AttendanceController::class, 'kiosk']);
+    Route::get('/library/attendance/kiosk/search', [AttendanceController::class, 'kioskSearch']);
+    Route::post('/library/attendance/kiosk/punch/{studentId}', [AttendanceController::class, 'kioskPunch']);
+    Route::post('/library/attendance/kiosk/unlock', [AttendanceController::class, 'kioskUnlock']);
 });
