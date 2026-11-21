@@ -1,14 +1,23 @@
 <aside class="sidebar" id="sidebar">
+    @php
+        $navLibrary = auth()->user()?->library;
+        $navLibName = $navLibrary->library_name ?? 'Study Library';
+        $navLibInitial = strtoupper(substr(trim($navLibName), 0, 1)) ?: 'L';
+        $navStudentCount = $navLibrary
+            ? \App\Models\Student::where('library_id', $navLibrary->id)->where('status', 'active')->count()
+            : 0;
+        $currentTab = request('tab', 'students');
+    @endphp
     <div class="sidebar-shell">
-        <a href="#" class="library-brand">
+        <a href="/library-dashboard" class="library-brand">
             <div class="library-brand-logo">
-                <img src="https://placehold.co/96x96/e8f7ff/0d7bf3?text=R" alt="Riyansh Digital Library"
+                <img src="https://placehold.co/96x96/e8f7ff/0d7bf3?text={{ $navLibInitial }}" alt="{{ $navLibName }}"
                     onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';">
                 <span class="library-brand-fallback"><i class="fa-solid fa-building-columns"></i></span>
             </div>
             <span class="library-brand-info">
-                <strong class="text-truncate">Riyansh Digital Library</strong>
-                <small>Study Library</small>
+                <strong class="text-truncate">{{ $navLibName }}</strong>
+                <small>{{ $navLibrary->library_type ?? 'Study Library' }}</small>
             </span>
         </a>
 
@@ -18,7 +27,7 @@
                     <i class="fa-solid fa-id-card"></i>
                 </div>
                 <div class="min-w-0 flex-grow-1">
-                    <div class="title text-truncate">LMSP-2026-AX72</div>
+                    <div class="title text-truncate">{{ $navLibrary->library_code ?? 'LMSP-ACTIVE' }}</div>
                     <div class="sub">Active library workspace</div>
                 </div>
                 <span class="status-dot" title="Active"></span>
@@ -36,7 +45,7 @@
             <a href="/library/students" class="side-link {{ request()->is('library/students*') ? 'active' : '' }}">
                 <i class="fa-solid fa-users"></i>
                 <span>Students</span>
-                <span class="nav-badge">250</span>
+                <span class="nav-badge">{{ $navStudentCount }}</span>
             </a>
             <a href="/library/attendance" class="side-link {{ request()->is('library/attendance*') ? 'active' : '' }}">
                 <i class="fa-solid fa-calendar-check"></i>
@@ -46,7 +55,8 @@
                 <i class="fa-solid fa-chair"></i>
                 <span>Seats</span>
             </a>
-            <a href="#" class="side-link">
+            <a href="/library/reports?tab=students"
+                class="side-link {{ request()->is('library/reports*') && $currentTab === 'students' ? 'active' : '' }}">
                 <i class="fa-solid fa-file-lines"></i>
                 <span>Student Report</span>
             </a>
@@ -55,7 +65,8 @@
                 <i class="fa-solid fa-wallet"></i>
                 <span>Fees & Payments</span>
             </a>
-            <a href="#" class="side-link">
+            <a href="/library/reports?tab=payments"
+                class="side-link {{ request()->is('library/reports*') && $currentTab === 'payments' ? 'active' : '' }}">
                 <i class="fa-solid fa-chart-line"></i>
                 <span>Payment Report</span>
             </a>

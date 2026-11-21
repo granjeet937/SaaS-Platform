@@ -7,6 +7,7 @@ use App\Models\Plan;
 use App\Http\Controllers\SeatController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Middleware\EnsureKioskUnlocked;
+use App\Http\Controllers\ReportController;
 
 Route::get('/', function () {
 
@@ -27,7 +28,9 @@ Route::post('/library_registration_store', [LibraryController::class, 'datastore
 Route::get('/library-registration', function () {
     return view('library.registration');
 });
-
+// Public Student Self-Registration (Token Protected)
+Route::get('/admission/{token}', [StudentController::class, 'publicRegisterForm'])->name('public.admission.form');
+Route::post('/admission/{token}', [StudentController::class, 'publicRegisterStore'])->middleware('throttle:10,1')->name('public.admission.store');
 
 Route::middleware(['auth', EnsureKioskUnlocked::class])->group(function () {
     Route::get('/library-dashboard', [
@@ -57,4 +60,10 @@ Route::middleware(['auth', EnsureKioskUnlocked::class])->group(function () {
     Route::get('/library/attendance/kiosk/search', [AttendanceController::class, 'kioskSearch']);
     Route::post('/library/attendance/kiosk/punch/{studentId}', [AttendanceController::class, 'kioskPunch']);
     Route::post('/library/attendance/kiosk/unlock', [AttendanceController::class, 'kioskUnlock']);
+    // Unified Reports Hub (Student Report & Payment Report)
+    Route::get('/library/reports', [ReportController::class, 'index']);
+    Route::get('/library/reports/export', [ReportController::class, 'exportCsv']);
+    // Student Invite Link & Pending Approval
+    Route::post('/library/students/regenerate-token', [StudentController::class, 'regenerateInviteToken']);
+    Route::post('/library/students/approve/{id}', [StudentController::class, 'approvePending']);
 });
