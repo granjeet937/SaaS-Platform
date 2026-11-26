@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LibraryShift;
 use App\Models\Seat;
 use Illuminate\Http\Request;
 
@@ -24,16 +25,16 @@ class SeatController extends Controller
         $now = now();
 
         for ($i = 1; $i <= $totalSeats; $i++) {
-            $seatNumber = 'LAB' . $library->id . '-' . str_pad((string) $i, $padLength, '0', STR_PAD_LEFT);
+            $seatNumber = 'LIB' . $library->id . '-' . str_pad((string) $i, $padLength, '0', STR_PAD_LEFT);
 
             if (!isset($existingNumbers[$seatNumber])) {
                 $newSeats[] = [
-                    'library_id' => $library->id,
+                    'library_id'  => $library->id,
                     'seat_number' => $seatNumber,
-                    'section' => null,
-                    'status' => 'available',
-                    'created_at' => $now,
-                    'updated_at' => $now,
+                    'section'     => null,
+                    'status'      => 'available',
+                    'created_at'  => $now,
+                    'updated_at'  => $now,
                 ];
             }
         }
@@ -42,10 +43,32 @@ class SeatController extends Controller
             Seat::insert($newSeats);
         }
 
-        $seats = Seat::where('library_id', $library->id)
-            ->with('student')
-            ->orderBy('id')
+        $shifts = LibraryShift::where('library_id', $library->id)
+            ->where('status', true)
+            ->orderBy('start_time')
+            ->orderBy('duration_hours')
             ->get();
+
+        $seats = Seat::where('library_id', $library->id)
+            ->with('activeStudents')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($seat) {
+                $usedHours = $seat->activeStudents->sum(fn($s) => $s->shift->duration_hours ?? 0);
+                $seat->used_hours = $usedHours;
+
+                if ($seat->status === 'maintenance') {
+                    $seat->computed_status = 'maintenance';
+                } elseif ($usedHours >= 24 || $seat->status === 'occupied') {
+                    $seat->computed_status = 'occupied';
+                } elseif ($usedHours > 0) {
+                    $seat->computed_status = 'partial';
+                } else {
+                    $seat->computed_status = 'available';
+                }
+
+                return $seat;
+            });
 
         $sections = $seats->pluck('section')
             ->filter()
@@ -53,13 +76,14 @@ class SeatController extends Controller
             ->values();
 
         $stats = [
-            'total' => $totalSeats,
-            'available' => $seats->where('status', 'available')->count(),
-            'occupied' => $seats->where('status', 'occupied')->count(),
-            'maintenance' => $seats->where('status', 'maintenance')->count(),
+            'total'       => $totalSeats,
+            'available'   => $seats->where('computed_status', 'available')->count(),
+            'partial'     => $seats->where('computed_status', 'partial')->count(),
+            'occupied'    => $seats->where('computed_status', 'occupied')->count(),
+            'maintenance' => $seats->where('computed_status', 'maintenance')->count(),
         ];
 
-        return view('library.seats.seatindex', compact('library', 'seats', 'sections', 'stats'));
+        return view('library.seats.seatindex', compact('library', 'seats', 'sections', 'stats', 'shifts'));
     }
 
     public function updateSection(Request $request)
@@ -69,13 +93,14 @@ class SeatController extends Controller
         abort_unless($library, 403, 'Library account not found.');
 
         $validated = $request->validate([
-            'seat_ids' => ['required', 'array', 'min:1'],
+            'seat_ids'   => ['required', 'array', 'min:1'],
             'seat_ids.*' => ['integer'],
-            'section' => ['nullable', 'string', 'max:255'],
-            'status' => ['nullable', 'in:available,maintenance'],
+            'section'    => ['nullable', 'string', 'max:255'],
+            'status'     => ['nullable', 'in:available,maintenance'],
         ]);
 
         $seats = Seat::where('library_id', $library->id)
+            ->withCount('activeStudents')
             ->whereIn('id', $validated['seat_ids'])
             ->get();
 
@@ -86,8 +111,7 @@ class SeatController extends Controller
                     : null,
             ];
 
-            // Occupied seat ka status bina student release kiye change nahi hoga
-            if (!empty($validated['status']) && $seat->status !== 'occupied') {
+            if (!empty($validated['status']) && $seat->active_students_count === 0 && $seat->status !== 'occupied') {
                 $updateData['status'] = $validated['status'];
             }
 

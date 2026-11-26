@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LibraryShift;
 use App\Models\Student;
 use App\Models\StudentAttendance;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -12,17 +14,27 @@ class AttendanceController extends Controller
     public function index(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $date = $request->query('date', now()->toDateString());
         $search = trim((string) $request->query('search', ''));
-        $filter = trim((string) $request->query('filter', 'all')); // all, present, inside, absent, unmarked
+        $filter = trim((string) $request->query('filter', 'all'));
+        $shiftId = trim((string) $request->query('shift_id', 'all'));
+
+        $shifts = LibraryShift::where('library_id', $library->id)
+            ->where('status', true)
+            ->orderBy('start_time')
+            ->orderBy('duration_hours')
+            ->get();
 
         $studentsQuery = Student::where('library_id', $library->id)
             ->where('status', 'active')
-            ->with('seat')
+            ->with(['seat', 'shift'])
             ->orderBy('name');
+
+        if ($shiftId !== 'all' && is_numeric($shiftId)) {
+            $studentsQuery->where('shift_id', (int) $shiftId);
+        }
 
         if ($search !== '') {
             $studentsQuery->where(function ($q) use ($search) {
@@ -34,7 +46,10 @@ class AttendanceController extends Controller
 
         $activeStudents = $studentsQuery->get();
 
-        $attendancesByStudent = StudentAttendance::where('library_id', $library->id)->whereDate('attendance_date', $date)->get()->keyBy('student_id');
+        $attendancesByStudent = StudentAttendance::where('library_id', $library->id)
+            ->whereDate('attendance_date', $date)
+            ->get()
+            ->keyBy('student_id');
 
         $presentCount = 0;
         $insideNowCount = 0;
@@ -53,7 +68,7 @@ class AttendanceController extends Controller
             }
 
             return (object) [
-                'student' => $student,
+                'student'    => $student,
                 'attendance' => $att,
             ];
         });
@@ -75,6 +90,8 @@ class AttendanceController extends Controller
             'date',
             'search',
             'filter',
+            'shiftId',
+            'shifts',
             'presentCount',
             'insideNowCount',
             'absentCount',
@@ -85,7 +102,6 @@ class AttendanceController extends Controller
     public function checkIn(Request $request, $studentId)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $student = Student::where('library_id', $library->id)->findOrFail($studentId);
@@ -98,17 +114,17 @@ class AttendanceController extends Controller
 
         if ($attendance) {
             $attendance->update([
-                'status' => 'present',
-                'check_in_time' => $attendance->check_in_time ?: now()->format('H:i:s'),
+                'status'         => 'present',
+                'check_in_time'  => $attendance->check_in_time ?: now()->format('H:i:s'),
                 'check_out_time' => null,
             ]);
         } else {
             StudentAttendance::create([
-                'library_id' => $library->id,
-                'student_id' => $student->id,
+                'library_id'      => $library->id,
+                'student_id'      => $student->id,
                 'attendance_date' => $date,
-                'check_in_time' => now()->format('H:i:s'),
-                'status' => 'present',
+                'check_in_time'   => now()->format('H:i:s'),
+                'status'          => 'present',
             ]);
         }
 
@@ -118,7 +134,6 @@ class AttendanceController extends Controller
     public function checkOut(Request $request, $studentId)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $student = Student::where('library_id', $library->id)->findOrFail($studentId);
@@ -131,18 +146,18 @@ class AttendanceController extends Controller
 
         if ($attendance) {
             $attendance->update([
-                'status' => 'present',
-                'check_in_time' => $attendance->check_in_time ?: now()->format('H:i:s'),
+                'status'         => 'present',
+                'check_in_time'  => $attendance->check_in_time ?: now()->format('H:i:s'),
                 'check_out_time' => now()->format('H:i:s'),
             ]);
         } else {
             StudentAttendance::create([
-                'library_id' => $library->id,
-                'student_id' => $student->id,
+                'library_id'      => $library->id,
+                'student_id'      => $student->id,
                 'attendance_date' => $date,
-                'check_in_time' => now()->format('H:i:s'),
-                'check_out_time' => now()->format('H:i:s'),
-                'status' => 'present',
+                'check_in_time'   => now()->format('H:i:s'),
+                'check_out_time'  => now()->format('H:i:s'),
+                'status'          => 'present',
             ]);
         }
 
@@ -152,7 +167,6 @@ class AttendanceController extends Controller
     public function markAbsent(Request $request, $studentId)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $student = Student::where('library_id', $library->id)->findOrFail($studentId);
@@ -160,13 +174,13 @@ class AttendanceController extends Controller
 
         StudentAttendance::updateOrCreate(
             [
-                'library_id' => $library->id,
-                'student_id' => $student->id,
+                'library_id'      => $library->id,
+                'student_id'      => $student->id,
                 'attendance_date' => $date,
             ],
             [
-                'status' => 'absent',
-                'check_in_time' => null,
+                'status'         => 'absent',
+                'check_in_time'  => null,
                 'check_out_time' => null,
             ]
         );
@@ -177,15 +191,20 @@ class AttendanceController extends Controller
     public function markAllPresent(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $date = $request->input('attendance_date', now()->toDateString());
+        $shiftId = $request->input('shift_id', 'all');
         $nowTime = now()->format('H:i:s');
 
-        $activeStudentIds = Student::where('library_id', $library->id)
-            ->where('status', 'active')
-            ->pluck('id');
+        $studentsQuery = Student::where('library_id', $library->id)
+            ->where('status', 'active');
+
+        if ($shiftId !== 'all' && is_numeric($shiftId)) {
+            $studentsQuery->where('shift_id', (int) $shiftId);
+        }
+
+        $activeStudentIds = $studentsQuery->pluck('id');
 
         $alreadyMarkedIds = StudentAttendance::where('library_id', $library->id)
             ->whereDate('attendance_date', $date)
@@ -196,32 +215,51 @@ class AttendanceController extends Controller
 
         foreach ($unmarkedIds as $sid) {
             StudentAttendance::create([
-                'library_id' => $library->id,
-                'student_id' => $sid,
+                'library_id'      => $library->id,
+                'student_id'      => $sid,
                 'attendance_date' => $date,
-                'check_in_time' => $nowTime,
-                'status' => 'present',
+                'check_in_time'   => $nowTime,
+                'status'          => 'present',
             ]);
         }
 
         return redirect()->back()->with('success', $unmarkedIds->count() . ' unmarked students checked in.');
     }
+
     public function kiosk(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
-        // Session mein kiosk lock flag set karein
         $request->session()->put('kiosk_locked', true);
 
         return view('library.attendance.kiosk', compact('library'));
     }
 
+    private function isWithinShiftWindow(?LibraryShift $shift): bool
+    {
+        if (!$shift || !$shift->start_time || !$shift->end_time || $shift->duration_hours >= 24) {
+            return true;
+        }
+
+        $nowMin = now()->hour * 60 + now()->minute;
+        $startMin = Carbon::parse($shift->start_time)->hour * 60 + Carbon::parse($shift->start_time)->minute;
+        $endMin = Carbon::parse($shift->end_time)->hour * 60 + Carbon::parse($shift->end_time)->minute;
+
+        // Allow 30-minute early grace period before shift starts
+        $graceStart = ($startMin - 30 + 1440) % 1440;
+
+        if ($graceStart < $endMin) {
+            return $nowMin >= $graceStart && $nowMin <= $endMin;
+        }
+
+        // Midnight-crossing shift (e.g. 10:00 PM to 06:00 AM)
+        return $nowMin >= $graceStart || $nowMin <= $endMin;
+    }
+
     public function kioskSearch(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $digits = preg_replace('/\D/', '', (string) $request->query('q', ''));
@@ -232,11 +270,10 @@ class AttendanceController extends Controller
 
         $today = now()->toDateString();
 
-        // Starting 4 digits (or exact 4 digits) match karein
         $students = Student::where('library_id', $library->id)
             ->where('status', 'active')
             ->where('mobile', 'like', $digits . '%')
-            ->with('seat')
+            ->with(['seat', 'shift'])
             ->orderBy('name')
             ->limit(8)
             ->get();
@@ -250,31 +287,39 @@ class AttendanceController extends Controller
         $results = $students->map(function ($st) use ($attendances) {
             $att = $attendances->get($st->id);
 
-            $state = 'not_checked_in'; // check-in kar sakta hai
+            $state = 'not_checked_in';
             if ($att && $att->status === 'present' && empty($att->check_out_time)) {
-                $state = 'inside'; // check-out kar sakta hai
+                $state = 'inside';
             } elseif ($att && $att->status === 'present' && !empty($att->check_out_time)) {
-                $state = 'checked_out'; // dobara check-in kar sakta hai
+                $state = 'checked_out';
             }
 
-            // Mobile number ko partially mask karein privacy ke liye (e.g. 9876****10)
             $rawMobile = preg_replace('/\D/', '', (string) $st->mobile);
             $maskedMobile = strlen($rawMobile) >= 6
                 ? substr($rawMobile, 0, 4) . '****' . substr($rawMobile, -2)
                 : $st->mobile;
 
+            $shiftTiming = null;
+            if ($st->shift && $st->shift->start_time && $st->shift->end_time) {
+                $shiftTiming = Carbon::parse($st->shift->start_time)->format('h:i A')
+                    . ' - ' . Carbon::parse($st->shift->end_time)->format('h:i A');
+            }
+
             return [
-                'id' => $st->id,
-                'name' => $st->name,
-                'student_code' => $st->student_code,
-                'masked_mobile' => $maskedMobile,
-                'seat' => $st->seat ? $st->seat->seat_number : 'No Seat',
-                'state' => $state,
-                'check_in_time' => ($att && $att->check_in_time)
-                    ? \Carbon\Carbon::parse($att->check_in_time)->format('h:i A')
+                'id'             => $st->id,
+                'name'           => $st->name,
+                'student_code'   => $st->student_code,
+                'photo_url'      => $st->photo ? route('students.photo', $st->id) : null,
+                'masked_mobile'  => $maskedMobile,
+                'seat'           => $st->seat ? $st->seat->seat_number : 'No Seat',
+                'shift_name'     => $st->shift?->shift_name ?? 'No Shift',
+                'shift_timing'   => $shiftTiming,
+                'state'          => $state,
+                'check_in_time'  => ($att && $att->check_in_time)
+                    ? Carbon::parse($att->check_in_time)->format('h:i A')
                     : null,
                 'check_out_time' => ($att && $att->check_out_time)
-                    ? \Carbon\Carbon::parse($att->check_out_time)->format('h:i A')
+                    ? Carbon::parse($att->check_out_time)->format('h:i A')
                     : null,
             ];
         });
@@ -285,11 +330,11 @@ class AttendanceController extends Controller
     public function kioskPunch(Request $request, $studentId)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $student = Student::where('library_id', $library->id)
             ->where('status', 'active')
+            ->with('shift')
             ->findOrFail($studentId);
 
         $today = now()->toDateString();
@@ -302,39 +347,45 @@ class AttendanceController extends Controller
             ->first();
 
         if ($attendance && $attendance->status === 'present' && empty($attendance->check_out_time)) {
-            // Check-Out mark karein
             $attendance->update([
                 'check_out_time' => $nowTime,
             ]);
 
             return response()->json([
-                'ok' => true,
-                'action' => 'check_out',
+                'ok'      => true,
+                'action'  => 'check_out',
                 'message' => "Goodbye {$student->name}! Checked Out at {$formattedTime}",
             ]);
         }
 
-        // Check-In mark karein
         if ($attendance) {
             $attendance->update([
-                'status' => 'present',
-                'check_in_time' => $attendance->check_in_time ?: $nowTime,
+                'status'         => 'present',
+                'check_in_time'  => $attendance->check_in_time ?: $nowTime,
                 'check_out_time' => null,
             ]);
         } else {
             StudentAttendance::create([
-                'library_id' => $library->id,
-                'student_id' => $student->id,
+                'library_id'      => $library->id,
+                'student_id'      => $student->id,
                 'attendance_date' => $today,
-                'check_in_time' => $nowTime,
-                'status' => 'present',
+                'check_in_time'   => $nowTime,
+                'status'          => 'present',
             ]);
         }
 
+        $offShiftNote = null;
+        if (!$this->isWithinShiftWindow($student->shift)) {
+            $sTime = Carbon::parse($student->shift->start_time)->format('h:i A');
+            $eTime = Carbon::parse($student->shift->end_time)->format('h:i A');
+            $offShiftNote = "Note: Outside your scheduled shift ({$student->shift->shift_name}: {$sTime} - {$eTime}).";
+        }
+
         return response()->json([
-            'ok' => true,
-            'action' => 'check_in',
-            'message' => "Welcome {$student->name}! Checked In at {$formattedTime}",
+            'ok'             => true,
+            'action'         => 'check_in',
+            'off_shift_note' => $offShiftNote,
+            'message'        => "Welcome {$student->name}! Checked In at {$formattedTime}",
         ]);
     }
 
@@ -348,7 +399,7 @@ class AttendanceController extends Controller
 
         if (!Hash::check($request->input('password'), $user->password)) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' => 'Incorrect admin password!',
             ], 422);
         }
@@ -356,7 +407,7 @@ class AttendanceController extends Controller
         $request->session()->forget('kiosk_locked');
 
         return response()->json([
-            'ok' => true,
+            'ok'       => true,
             'redirect' => '/library/attendance',
         ]);
     }

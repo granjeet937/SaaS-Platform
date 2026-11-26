@@ -389,24 +389,33 @@
                     const isInside = st.state === 'inside';
                     const initials = getInitials(st.name);
 
+                    const avatarHtml = st.photo_url ?
+                        `<img src="${st.photo_url}" alt="${st.name}" class="rounded-3 object-fit-cover border flex-shrink-0" style="width:46px;height:46px;">` :
+                        `<div class="student-avatar">${initials}</div>`;
+
                     const badgeHtml = isInside ?
                         `<span class="action-pill-out"><i class="fa-solid fa-right-from-bracket me-1"></i>Check Out</span>` :
                         `<span class="action-pill-in"><i class="fa-solid fa-right-to-bracket me-1"></i>Check In</span>`;
 
+                    const shiftLine = st.shift_timing ?
+                        `${st.shift_name} (${st.shift_timing})` :
+                        st.shift_name;
+
                     const timeNote = isInside && st.check_in_time ?
-                        `<div class="text-primary fw-semibold" style="font-size:0.75rem;"><i class="fa-regular fa-clock me-1"></i>Checked in at ${st.check_in_time}</div>` :
+                        `<div class="text-primary fw-semibold" style="font-size:0.74rem;"><i class="fa-regular fa-clock me-1"></i>Checked in at ${st.check_in_time}</div>` :
                         (st.check_out_time ?
-                            `<div class="text-muted" style="font-size:0.75rem;">Last check-out: ${st.check_out_time}</div>` :
+                            `<div class="text-muted" style="font-size:0.74rem;">Last check-out: ${st.check_out_time}</div>` :
                             '');
 
                     return `
                         <button type="button" class="btn student-match-btn w-100 p-3 mb-2 d-flex justify-content-between align-items-center gap-2"
                                 onclick="punchStudent(${st.id})">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="student-avatar">${initials}</div>
-                                <div>
-                                    <div class="fw-bold fs-6 text-dark lh-sm">${st.name}</div>
+                            <div class="d-flex align-items-center gap-3 min-w-0">
+                                ${avatarHtml}
+                                <div class="min-w-0">
+                                    <div class="fw-bold fs-6 text-dark lh-sm text-truncate">${st.name}</div>
                                     <div class="text-muted small">${st.masked_mobile} &bull; Seat: <strong class="text-dark">${st.seat}</strong></div>
+                                    <div class="text-info-emphasis fw-semibold" style="font-size:0.74rem;"><i class="fa-solid fa-clock me-1"></i>${shiftLine}</div>
                                     ${timeNote}
                                 </div>
                             </div>
@@ -433,10 +442,14 @@
                     .then(res => res.json())
                     .then(data => {
                         if (data.ok) {
+                            const noteHtml = data.off_shift_note ?
+                                `<div class="small fw-normal mt-1 text-warning-emphasis">${data.off_shift_note}</div>` :
+                                '';
+
                             punchAlert.className =
                                 `alert ${data.action === 'check_in' ? 'alert-success' : 'alert-primary'} text-center fw-bold py-3 rounded-4 mb-3 shadow-sm`;
                             punchAlert.innerHTML =
-                                `<i class="fa-solid fa-circle-check me-1"></i> ${data.message}`;
+                                `<i class="fa-solid fa-circle-check me-1"></i> ${data.message}${noteHtml}`;
                             punchAlert.classList.remove('d-none');
 
                             setTimeout(() => {
@@ -444,7 +457,7 @@
                                 resultsEl.innerHTML = '';
                                 punchAlert.classList.add('d-none');
                                 inputEl.focus();
-                            }, 3000);
+                            }, 3200);
                         }
                     });
             };

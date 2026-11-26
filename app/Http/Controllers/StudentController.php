@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LibraryShift;
 use App\Models\Seat;
 use App\Models\Student;
 use App\Models\StudentPayment;
@@ -12,63 +13,190 @@ use Illuminate\Validation\ValidationException;
 
 class StudentController extends Controller
 {
+    private function timeToMinutes(?string $time): ?int
+    {
+        if (!$time) {
+            return null;
+        }
+        $parts = explode(':', $time);
+        return ((int) $parts[0] * 60) + (int) ($parts[1] ?? 0);
+    }
+
+    private function shiftsOverlap(LibraryShift $s1, LibraryShift $s2): bool
+    {
+        $a1 = $this->timeToMinutes($s1->start_time);
+        $a2 = $this->timeToMinutes($s1->end_time);
+        $b1 = $this->timeToMinutes($s2->start_time);
+        $b2 = $this->timeToMinutes($s2->end_time);
+
+        if ($a1 === null || $a2 === null || $b1 === null || $b2 === null) {
+            return false;
+        }
+
+        $segsA = $a2 > $a1 ? [[$a1, $a2]] : [[$a1, 1440], [0, $a2]];
+        $segsB = $b2 > $b1 ? [[$b1, $b2]] : [[$b1, 1440], [0, $b2]];
+
+        foreach ($segsA as [$x1, $x2]) {
+            foreach ($segsB as [$y1, $y2]) {
+                if ($x1 < $y2 && $x2 > $y1) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function syncSeatStatus(int $libraryId, ?int $seatId): void
+    {
+        if (!$seatId) {
+            return;
+        }
+
+        $seat = Seat::where('library_id', $libraryId)->find($seatId);
+        if (!$seat || $seat->status === 'maintenance') {
+            return;
+        }
+
+        $usedHours = Student::where('library_id', $libraryId)
+            ->where('seat_id', $seatId)
+            ->where('status', 'active')
+            ->with('shift')
+            ->get()
+            ->sum(fn($s) => $s->shift->duration_hours ?? 0);
+
+        $seat->update([
+            'status' => $usedHours >= 24 ? 'occupied' : 'available',
+        ]);
+    }
+
+    private function validateSeatForShift(int $libraryId, int $seatId, LibraryShift $shift, ?int $ignoreStudentId = null): Seat
+    {
+        $seat = Seat::where('library_id', $libraryId)
+            ->where('id', $seatId)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$seat || $seat->status === 'maintenance' || $seat->status === 'occupied') {
+            throw ValidationException::withMessages([
+                'seat_id' => 'This seat is unavailable or already fully occupied.',
+            ]);
+        }
+
+        $activeStudentsOnSeat = Student::where('library_id', $libraryId)
+            ->where('seat_id', $seat->id)
+            ->where('status', 'active')
+            ->when($ignoreStudentId, fn($q) => $q->where('id', '!=', $ignoreStudentId))
+            ->with('shift')
+            ->get();
+
+        if ($activeStudentsOnSeat->contains('shift_id', $shift->id)) {
+            throw ValidationException::withMessages([
+                'seat_id' => "This seat is already booked for {$shift->shift_name}.",
+            ]);
+        }
+
+        foreach ($activeStudentsOnSeat as $existing) {
+            if ($existing->shift && $this->shiftsOverlap($shift, $existing->shift)) {
+                throw ValidationException::withMessages([
+                    'seat_id' => "Timing overlaps with existing student ({$existing->shift->shift_name}) on this seat.",
+                ]);
+            }
+        }
+
+        $usedHours = $activeStudentsOnSeat->sum(fn($s) => $s->shift->duration_hours ?? 0);
+        if (($usedHours + $shift->duration_hours) > 24) {
+            throw ValidationException::withMessages([
+                'seat_id' => 'Not enough remaining shift hours available on this seat.',
+            ]);
+        }
+
+        return $seat;
+    }
+
     public function index(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $students = Student::where('library_id', $library->id)
-            ->with('seat')
+            ->with(['seat', 'shift'])
             ->latest()
             ->paginate(15);
 
-        return view('library.students.stdindex', compact('students'));
+        $shifts = LibraryShift::where('library_id', $library->id)
+            ->where('status', true)
+            ->orderBy('start_time')
+            ->orderBy('duration_hours')
+            ->get();
+
+        $availableSeats = Seat::where('library_id', $library->id)
+            ->where('status', 'available')
+            ->with('activeStudents')
+            ->orderBy('seat_number')
+            ->get();
+
+        return view('library.students.stdindex', compact('students', 'shifts', 'availableSeats'));
     }
 
     public function create(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
+
+        $shifts = LibraryShift::where('library_id', $library->id)
+            ->where('status', true)
+            ->orderBy('start_time')
+            ->orderBy('duration_hours')
+            ->get();
 
         $seats = Seat::where('library_id', $library->id)
             ->where('status', 'available')
+            ->with('activeStudents')
             ->orderBy('seat_number')
             ->get();
 
-        return view('library.students.stdcreate', compact('seats'));
+        return view('library.students.stdcreate', compact('shifts', 'seats'));
     }
 
     public function store(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
-            'mobile' => ['required', 'string', 'max:20'],
-            'email' => ['nullable', 'email', 'max:100'],
-            'guardian_name' => ['nullable', 'string', 'max:100'],
-            'guardian_mobile' => ['nullable', 'string', 'max:20'],
-            'address' => ['nullable', 'string'],
-            'admission_date' => ['required', 'date'],
-            'seat_id' => ['nullable', 'integer'],
-            'total_fee' => ['required', 'numeric', 'min:0', 'max:99999999'],
-            'discount' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
-            'initial_payment' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
-            'payment_method' => [
-                'required',
-                'in:cash,upi,card,bank_transfer,other'
-            ],
+            'name'             => ['required', 'string', 'max:100'],
+            'mobile'           => ['required', 'string', 'max:20'],
+            'email'            => ['nullable', 'email', 'max:100'],
+            'guardian_name'    => ['nullable', 'string', 'max:100'],
+            'guardian_mobile'  => ['nullable', 'string', 'max:20'],
+            'address'          => ['nullable', 'string'],
+            'admission_date'   => ['required', 'date'],
+            'shift_id'         => ['required', 'integer'],
+            'seat_id'          => ['nullable', 'integer'],
+            'total_fee'        => ['required', 'numeric', 'min:0', 'max:99999999'],
+            'discount'         => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'initial_payment'  => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'payment_method'   => ['required', 'in:cash,upi,card,bank_transfer,other'],
             'reference_number' => ['nullable', 'string', 'max:100'],
+            'photo'            => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
 
-        $totalFee = (float) $validated['total_fee'];
-        $discount = (float) ($validated['discount'] ?? 0);
+        $shift = LibraryShift::where('library_id', $library->id)
+            ->where('id', $validated['shift_id'])
+            ->where('status', true)
+            ->first();
+
+        if (!$shift) {
+            throw ValidationException::withMessages([
+                'shift_id' => 'Selected shift is invalid or inactive.',
+            ]);
+        }
+
+        $totalFee       = (float) $validated['total_fee'];
+        $discount       = (float) ($validated['discount'] ?? 0);
         $initialPayment = (float) ($validated['initial_payment'] ?? 0);
-        $payableFee = round($totalFee - $discount, 2);
+        $payableFee     = round($totalFee - $discount, 2);
 
         if ($discount > $totalFee) {
             throw ValidationException::withMessages([
@@ -82,103 +210,148 @@ class StudentController extends Controller
             ]);
         }
 
-        DB::transaction(function () use (
-            $validated,
-            $library,
-            $totalFee,
-            $discount,
-            $payableFee,
-            $initialPayment
-        ) {
-            $seat = null;
+        $photoPath = null;
 
-            if (!empty($validated['seat_id'])) {
-                $seat = Seat::where('library_id', $library->id)
-                    ->where('id', $validated['seat_id'])
-                    ->lockForUpdate()
-                    ->first();
+        try {
+            DB::transaction(function () use (
+                $request,
+                $validated,
+                $library,
+                $shift,
+                $totalFee,
+                $discount,
+                $payableFee,
+                $initialPayment,
+                &$photoPath
+            ) {
+                $seat = null;
+                if (!empty($validated['seat_id'])) {
+                    $seat = $this->validateSeatForShift($library->id, (int) $validated['seat_id'], $shift);
+                }
 
-                if (!$seat || $seat->status !== 'available') {
-                    throw ValidationException::withMessages([
-                        'seat_id' => 'This seat is no longer available. Please select another seat.',
+                $cleanName = preg_replace('/[^a-zA-Z\s]/', '', trim($validated['name']));
+                $words = array_values(array_filter(explode(' ', $cleanName)));
+
+                if (count($words) >= 3) {
+                    $prefix = strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1) . substr($words[2], 0, 1));
+                } else {
+                    $joined = str_replace(' ', '', $cleanName);
+                    $prefix = strtoupper(str_pad(substr($joined, 0, 3), 3, 'X'));
+                }
+
+                $sequence = Student::where('library_id', $library->id)->count() + 1;
+
+                do {
+                    $studentCode = 'STU-' . $prefix . str_pad($sequence, 2, '0', STR_PAD_LEFT);
+                    $sequence++;
+                } while (Student::where('student_code', $studentCode)->exists());
+
+                if ($request->hasFile('photo')) {
+                    $file = $request->file('photo');
+                    $extension = strtolower($file->getClientOriginalExtension());
+                    $relativeDir = "Library/{$library->library_code}/Students/{$studentCode}";
+                    $fileName = "{$studentCode}.{$extension}";
+
+                    $fullDir = base_path($relativeDir);
+                    if (!is_dir($fullDir)) {
+                        mkdir($fullDir, 0755, true);
+                    }
+
+                    $file->move($fullDir, $fileName);
+                    $photoPath = "{$relativeDir}/{$fileName}";
+                }
+
+                $student = Student::create([
+                    'library_id'      => $library->id,
+                    'student_code'    => $studentCode,
+                    'name'            => $validated['name'],
+                    'mobile'          => $validated['mobile'],
+                    'email'           => $validated['email'] ?? null,
+                    'guardian_name'   => $validated['guardian_name'] ?? null,
+                    'guardian_mobile' => $validated['guardian_mobile'] ?? null,
+                    'address'         => $validated['address'] ?? null,
+                    'photo'           => $photoPath,
+                    'admission_date'  => $validated['admission_date'],
+                    'shift_id'        => $shift->id,
+                    'seat_id'         => $seat?->id,
+                    'total_fee'       => $totalFee,
+                    'discount'        => $discount,
+                    'payable_fee'     => $payableFee,
+                    'status'          => 'active',
+                ]);
+
+                if ($seat) {
+                    $this->syncSeatStatus($library->id, $seat->id);
+                }
+
+                if ($initialPayment > 0) {
+                    StudentPayment::create([
+                        'library_id'       => $library->id,
+                        'student_id'       => $student->id,
+                        'amount'           => $initialPayment,
+                        'payment_method'   => $validated['payment_method'],
+                        'payment_status'   => 'paid',
+                        'payment_date'     => now()->toDateString(),
+                        'reference_number' => $validated['reference_number'] ?? null,
                     ]);
                 }
+            });
+        } catch (\Throwable $e) {
+            if ($photoPath && file_exists(base_path($photoPath))) {
+                unlink(base_path($photoPath));
             }
-
-            $student = Student::create([
-                'library_id' => $library->id,
-                'student_code' => 'STU-' . strtoupper(Str::random(12)),
-                'name' => $validated['name'],
-                'mobile' => $validated['mobile'],
-                'email' => $validated['email'] ?? null,
-                'guardian_name' => $validated['guardian_name'] ?? null,
-                'guardian_mobile' => $validated['guardian_mobile'] ?? null,
-                'address' => $validated['address'] ?? null,
-                'admission_date' => $validated['admission_date'],
-                'seat_id' => $seat?->id,
-                'total_fee' => $totalFee,
-                'discount' => $discount,
-                'payable_fee' => $payableFee,
-                'status' => 'active',
-            ]);
-
-            if ($seat) {
-                $seat->update(['status' => 'occupied']);
-            }
-
-            if ($initialPayment > 0) {
-                StudentPayment::create([
-                    'library_id' => $library->id,
-                    'student_id' => $student->id,
-                    'amount' => $initialPayment,
-                    'payment_method' => $validated['payment_method'],
-                    'payment_status' => 'paid',
-                    'payment_date' => now()->toDateString(),
-                    'reference_number' => $validated['reference_number'] ?? null,
-                ]);
-            }
-        });
+            throw $e;
+        }
 
         return redirect('/library/students')
             ->with('success', 'Student admitted successfully.');
     }
+
+    public function showPhoto(Request $request, $id)
+    {
+        $student = Student::where('library_id', $request->user()->library_id)
+            ->findOrFail($id);
+
+        if (!$student->photo || !file_exists(base_path($student->photo))) {
+            abort(404);
+        }
+
+        return response()->file(base_path($student->photo));
+    }
+
     public function show(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $student = Student::where('library_id', $library->id)
             ->with([
                 'seat',
+                'shift',
                 'payments' => function ($query) {
                     $query->orderByDesc('payment_date')->orderByDesc('id');
                 },
             ])
             ->findOrFail($id);
 
-        // 30-day cycle calculation from admission_date
         $admissionDate = $student->admission_date
             ? $student->admission_date->copy()->startOfDay()
             : now()->startOfDay();
 
-        $daysElapsed = max(0, (int) $admissionDate->diffInDays(now()->startOfDay(), false));
+        $daysElapsed = max(0, (int)$admissionDate->diffInDays(now()->startOfDay(), false));
         $totalMonths = (int) floor($daysElapsed / 30) + 1;
 
-        $monthlyPayable = (float) $student->payable_fee;
+        $monthlyPayable = (float)$student->payable_fee;
         $totalDue = round($totalMonths * $monthlyPayable, 2);
 
-        $totalPaid = (float) $student->payments
+        $totalPaid = (float)$student->payments
             ->where('payment_status', 'paid')
             ->sum('amount');
 
         $remainingBalance = max(0, round($totalDue - $totalPaid, 2));
         $nextDueDate = $admissionDate->copy()->addDays($totalMonths * 30);
-
-        $availableSeats = Seat::where('library_id', $library->id)
-            ->where('status', 'available')
-            ->orderBy('seat_number')
-            ->get();
+        $shifts = LibraryShift::where('library_id', $library->id)->where('status', true)->orderBy('start_time')->orderBy('duration_hours')->get();
+        $allSeats = Seat::where('library_id', $library->id)->where('status', '!=', 'maintenance')->with('activeStudents')->orderBy('seat_number')->get();
 
         return view('library.students.stdshow', compact(
             'student',
@@ -188,28 +361,42 @@ class StudentController extends Controller
             'totalPaid',
             'remainingBalance',
             'nextDueDate',
-            'availableSeats'
+            'allSeats',
+            'shifts'
         ));
     }
+
     public function update(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $student = Student::where('library_id', $library->id)->findOrFail($id);
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
-            'mobile' => ['required', 'string', 'max:20'],
-            'email' => ['nullable', 'email', 'max:100'],
-            'guardian_name' => ['nullable', 'string', 'max:100'],
+            'name'            => ['required', 'string', 'max:100'],
+            'mobile'          => ['required', 'string', 'max:20'],
+            'email'           => ['nullable', 'email', 'max:100'],
+            'guardian_name'   => ['nullable', 'string', 'max:100'],
             'guardian_mobile' => ['nullable', 'string', 'max:20'],
-            'address' => ['nullable', 'string'],
-            'admission_date' => ['required', 'date'],
-            'total_fee' => ['required', 'numeric', 'min:0', 'max:99999999'],
-            'discount' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'address'         => ['nullable', 'string'],
+            'admission_date'  => ['required', 'date'],
+            'shift_id'        => ['required', 'integer'],
+            'total_fee'       => ['required', 'numeric', 'min:0', 'max:99999999'],
+            'discount'        => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'photo'           => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
+
+        $newShift = LibraryShift::where('library_id', $library->id)
+            ->where('id', $validated['shift_id'])
+            ->where('status', true)
+            ->first();
+
+        if (!$newShift) {
+            throw ValidationException::withMessages([
+                'shift_id' => 'Selected shift is invalid or inactive.',
+            ]);
+        }
 
         $totalFee = (float) $validated['total_fee'];
         $discount = (float) ($validated['discount'] ?? 0);
@@ -231,26 +418,59 @@ class StudentController extends Controller
             ]);
         }
 
-        $student->update([
-            'name' => $validated['name'],
-            'mobile' => $validated['mobile'],
-            'email' => $validated['email'] ?? null,
-            'guardian_name' => $validated['guardian_name'] ?? null,
-            'guardian_mobile' => $validated['guardian_mobile'] ?? null,
-            'address' => $validated['address'] ?? null,
-            'admission_date' => $validated['admission_date'],
-            'total_fee' => $totalFee,
-            'discount' => $discount,
-            'payable_fee' => $payableFee,
-        ]);
+        DB::transaction(function () use ($request, $library, $student, $validated, $newShift, $totalFee, $discount, $payableFee) {
+            // If shift changed while student holds a seat, verify new shift doesn't clash on that seat
+            if ($student->seat_id && (int) $student->shift_id !== (int) $newShift->id) {
+                $this->validateSeatForShift($library->id, (int) $student->seat_id, $newShift, $student->id);
+            }
+
+            $photoPath = $student->photo;
+            if ($request->hasFile('photo')) {
+                $file = $request->file('photo');
+                $extension = strtolower($file->getClientOriginalExtension());
+                $relativeDir = "Library/{$library->library_code}/Students/{$student->student_code}";
+                $fileName = "{$student->student_code}.{$extension}";
+
+                $fullDir = base_path($relativeDir);
+                if (!is_dir($fullDir)) {
+                    mkdir($fullDir, 0755, true);
+                }
+
+                if ($photoPath && file_exists(base_path($photoPath))) {
+                    unlink(base_path($photoPath));
+                }
+
+                $file->move($fullDir, $fileName);
+                $photoPath = "{$relativeDir}/{$fileName}";
+            }
+
+            $student->update([
+                'name'            => $validated['name'],
+                'mobile'          => $validated['mobile'],
+                'email'           => $validated['email'] ?? null,
+                'guardian_name'   => $validated['guardian_name'] ?? null,
+                'guardian_mobile' => $validated['guardian_mobile'] ?? null,
+                'address'         => $validated['address'] ?? null,
+                'admission_date'  => $validated['admission_date'],
+                'shift_id'        => $newShift->id,
+                'photo'           => $photoPath,
+                'total_fee'       => $totalFee,
+                'discount'        => $discount,
+                'payable_fee'     => $payableFee,
+            ]);
+
+            if ($student->seat_id) {
+                $this->syncSeatStatus($library->id, (int) $student->seat_id);
+            }
+        });
 
         return redirect('/library/students/view/' . $student->id)
             ->with('success', 'Student details updated successfully.');
     }
+
     public function toggleStatus(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $message = '';
@@ -261,18 +481,14 @@ class StudentController extends Controller
                 ->findOrFail($id);
 
             if ($student->status === 'active') {
-                // Deactivate karte waqt assigned seat free kar dein
-                if ($student->seat_id) {
-                    Seat::where('library_id', $library->id)
-                        ->where('id', $student->seat_id)
-                        ->update(['status' => 'available']);
-                }
+                $oldSeatId = $student->seat_id;
 
                 $student->update([
-                    'status' => 'inactive',
+                    'status'  => 'inactive',
                     'seat_id' => null,
                 ]);
 
+                $this->syncSeatStatus($library->id, $oldSeatId);
                 $message = 'Student deactivated and assigned seat released.';
             } else {
                 $student->update([
@@ -290,7 +506,6 @@ class StudentController extends Controller
     public function destroy(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         DB::transaction(function () use ($library, $id) {
@@ -298,59 +513,60 @@ class StudentController extends Controller
                 ->lockForUpdate()
                 ->findOrFail($id);
 
-            if ($student->seat_id) {
-                Seat::where('library_id', $library->id)
-                    ->where('id', $student->seat_id)
-                    ->update(['status' => 'available']);
-            }
+            $oldSeatId = $student->seat_id;
+            $photoPath = $student->photo;
 
             $student->payments()->delete();
-
-            // Student record delete karein
             $student->delete();
+
+            $this->syncSeatStatus($library->id, $oldSeatId);
+
+            if ($photoPath && file_exists(base_path($photoPath))) {
+                unlink(base_path($photoPath));
+            }
         });
 
         return redirect('/library/students')
             ->with('success', 'Student deleted successfully.');
     }
+
     public function collectFee(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $student = Student::where('library_id', $library->id)->findOrFail($id);
 
         $validated = $request->validate([
-            'amount' => ['required', 'numeric', 'min:1', 'max:99999999'],
-            'payment_method' => ['required', 'in:cash,upi,card,bank_transfer,other'],
-            'payment_date' => ['required', 'date'],
+            'amount'           => ['required', 'numeric', 'min:1', 'max:99999999'],
+            'payment_method'   => ['required', 'in:cash,upi,card,bank_transfer,other'],
+            'payment_date'     => ['required', 'date'],
             'reference_number' => ['nullable', 'string', 'max:100'],
-            'notes' => ['nullable', 'string', 'max:255'],
+            'notes'            => ['nullable', 'string', 'max:255'],
         ]);
 
         StudentPayment::create([
-            'library_id' => $library->id,
-            'student_id' => $student->id,
-            'amount' => round((float) $validated['amount'], 2),
-            'payment_method' => $validated['payment_method'],
-            'payment_status' => 'paid',
-            'payment_date' => $validated['payment_date'],
+            'library_id'       => $library->id,
+            'student_id'       => $student->id,
+            'amount'           => round((float) $validated['amount'], 2),
+            'payment_method'   => $validated['payment_method'],
+            'payment_status'   => 'paid',
+            'payment_date'     => $validated['payment_date'],
             'reference_number' => $validated['reference_number'] ?? null,
-            'notes' => $validated['notes'] ?? null,
+            'notes'            => $validated['notes'] ?? null,
         ]);
 
         return redirect()->back()
             ->with('success', 'Fee payment of ₹' . number_format((float) $validated['amount'], 2) . ' recorded successfully.');
     }
+
     public function feesIndex(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $search = trim((string) $request->query('search', ''));
-        $filter = trim((string) $request->query('filter', 'all')); // all, pending, paid
+        $filter = trim((string) $request->query('filter', 'all'));
 
         $studentsQuery = Student::where('library_id', $library->id)
             ->with([
@@ -395,14 +611,14 @@ class StudentController extends Controller
             }
 
             return (object) [
-                'student' => $student,
-                'totalMonths' => $totalMonths,
-                'monthlyPayable' => $monthlyPayable,
-                'totalDue' => $totalDue,
-                'totalPaid' => $totalPaid,
+                'student'          => $student,
+                'totalMonths'      => $totalMonths,
+                'monthlyPayable'   => $monthlyPayable,
+                'totalDue'         => $totalDue,
+                'totalPaid'        => $totalPaid,
                 'remainingBalance' => $remainingBalance,
-                'nextDueDate' => $nextDueDate,
-                'isPaid' => $remainingBalance <= 0,
+                'nextDueDate'      => $nextDueDate,
+                'isPaid'           => $remainingBalance <= 0,
             ];
         });
 
@@ -444,7 +660,6 @@ class StudentController extends Controller
     public function printReceipt(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $payment = StudentPayment::where('library_id', $library->id)
@@ -476,60 +691,90 @@ class StudentController extends Controller
             'remainingBalance'
         ));
     }
+
     public function changeSeat(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $validated = $request->validate([
-            'seat_id' => ['nullable', 'integer'],
+            'shift_id'        => ['required', 'integer'],
+            'seat_id'         => ['nullable', 'integer'],
+            'update_shift_fee' => ['nullable', 'boolean'],
         ]);
+
+        $newShift = LibraryShift::where('library_id', $library->id)
+            ->where('id', $validated['shift_id'])
+            ->where('status', true)
+            ->first();
+
+        if (!$newShift) {
+            throw ValidationException::withMessages([
+                'shift_id' => 'Selected shift is invalid or inactive.',
+            ]);
+        }
 
         $newSeatId = !empty($validated['seat_id']) ? (int) $validated['seat_id'] : null;
 
-        DB::transaction(function () use ($library, $id, $newSeatId) {
+        DB::transaction(function () use ($library, $id, $newShift, $newSeatId, $validated) {
             $student = Student::where('library_id', $library->id)
                 ->lockForUpdate()
                 ->findOrFail($id);
 
-            if ((int) $student->seat_id === (int) $newSeatId) {
-                return;
-            }
+            $oldSeatId = $student->seat_id;
 
-            if ($student->seat_id) {
-                Seat::where('library_id', $library->id)
-                    ->where('id', $student->seat_id)
-                    ->update(['status' => 'available']);
-            }
-
+            // Validate seat against the newly selected shift
+            $validatedSeat = null;
             if ($newSeatId) {
-                $newSeat = Seat::where('library_id', $library->id)
-                    ->where('id', $newSeatId)
-                    ->lockForUpdate()
-                    ->first();
+                $validatedSeat = $this->validateSeatForShift($library->id, $newSeatId, $newShift, $student->id);
+            }
 
-                if (!$newSeat || $newSeat->status !== 'available') {
+            $updateData = [
+                'shift_id' => $newShift->id,
+                'seat_id'  => $validatedSeat?->id,
+            ];
+
+            // Optionally update monthly fee to match the new shift's fee
+            if (!empty($validated['update_shift_fee'])) {
+                $newTotalFee = (float) $newShift->monthly_fee;
+                $discount = (float) $student->discount;
+                $newPayable = max(0, round($newTotalFee - $discount, 2));
+
+                $totalPaid = (float) $student->payments()
+                    ->where('payment_status', 'paid')
+                    ->sum('amount');
+
+                if ($newPayable < $totalPaid) {
                     throw ValidationException::withMessages([
-                        'seat_id' => 'Selected seat is no longer available. Please choose another seat.',
+                        'shift_id' => 'New shift payable fee (₹' . number_format($newPayable, 2) . ') cannot be less than already paid amount (₹' . number_format($totalPaid, 2) . '). Uncheck fee update or adjust discount.',
                     ]);
                 }
 
-                $newSeat->update(['status' => 'occupied']);
-                $student->update(['seat_id' => $newSeat->id]);
-            } else {
-                $student->update(['seat_id' => null]);
+                $updateData['total_fee'] = $newTotalFee;
+                $updateData['payable_fee'] = $newPayable;
+            }
+
+            $student->update($updateData);
+
+            $this->syncSeatStatus($library->id, $oldSeatId);
+            if ($validatedSeat) {
+                $this->syncSeatStatus($library->id, $validatedSeat->id);
             }
         });
 
         return redirect('/library/students/view/' . $id)
-            ->with('success', $newSeatId ? 'Seat assigned/updated successfully.' : 'Seat released successfully.');
+            ->with('success', 'Shift and seat allocation updated successfully.');
     }
+
     public function publicRegisterForm(string $token)
     {
         $library = \App\Models\Library::where('admission_token', $token)->firstOrFail();
+        $shifts = LibraryShift::where('library_id', $library->id)
+            ->where('status', true)
+            ->orderBy('start_time')
+            ->get();
 
-        return view('library.students.public_register', compact('library', 'token'));
+        return view('library.students.public_register', compact('library', 'token', 'shifts'));
     }
 
     public function publicRegisterStore(Request $request, string $token)
@@ -537,16 +782,17 @@ class StudentController extends Controller
         $library = \App\Models\Library::where('admission_token', $token)->firstOrFail();
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
-            'mobile' => ['required', 'string', 'max:20'],
-            'email' => ['nullable', 'email', 'max:100'],
-            'guardian_name' => ['nullable', 'string', 'max:100'],
+            'name'            => ['required', 'string', 'max:100'],
+            'mobile'          => ['required', 'string', 'max:20'],
+            'email'           => ['nullable', 'email', 'max:100'],
+            'guardian_name'   => ['nullable', 'string', 'max:100'],
             'guardian_mobile' => ['nullable', 'string', 'max:20'],
-            'address' => ['nullable', 'string', 'max:500'],
-            'admission_date' => ['required', 'date'],
+            'address'         => ['nullable', 'string', 'max:500'],
+            'admission_date'  => ['required', 'date'],
+            'shift_id'        => ['nullable', 'integer'],
+            'photo'           => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
 
-        // Duplicate mobile check (pending ya active student ke liye)
         $exists = Student::where('library_id', $library->id)
             ->where('mobile', trim($validated['mobile']))
             ->whereIn('status', ['pending', 'active'])
@@ -558,21 +804,60 @@ class StudentController extends Controller
                 ->withErrors(['mobile' => 'This mobile number is already registered or pending approval in this library.']);
         }
 
+        // Sequential student code generate karein taaki photo folder bhi usi code se bane
+        $cleanName = preg_replace('/[^a-zA-Z\s]/', '', trim($validated['name']));
+        $words = array_values(array_filter(explode(' ', $cleanName)));
+        $prefix = count($words) >= 3
+            ? strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1) . substr($words[2], 0, 1))
+            : strtoupper(str_pad(substr(str_replace(' ', '', $cleanName), 0, 3), 3, 'X'));
+
+        $sequence = Student::where('library_id', $library->id)->count() + 1;
+        do {
+            $studentCode = 'STU-' . $prefix . str_pad($sequence, 2, '0', STR_PAD_LEFT);
+            $sequence++;
+        } while (Student::where('student_code', $studentCode)->exists());
+
+        $photoPath = null;
+        if ($request->hasFile('photo')) {
+            $file = $request->file('photo');
+            $extension = strtolower($file->getClientOriginalExtension());
+            $relativeDir = "Library/{$library->library_code}/Students/{$studentCode}";
+            $fileName = "{$studentCode}.{$extension}";
+
+            $fullDir = base_path($relativeDir);
+            if (!is_dir($fullDir)) {
+                mkdir($fullDir, 0755, true);
+            }
+
+            $file->move($fullDir, $fileName);
+            $photoPath = "{$relativeDir}/{$fileName}";
+        }
+
+        $validShiftId = null;
+        if (!empty($validated['shift_id'])) {
+            $validShiftId = LibraryShift::where('library_id', $library->id)
+                ->where('id', $validated['shift_id'])
+                ->where('status', true)
+                ->value('id');
+        }
+
         Student::create([
-            'library_id' => $library->id,
-            'student_code' => 'STU-' . strtoupper(Str::random(12)),
-            'name' => trim($validated['name']),
-            'mobile' => trim($validated['mobile']),
-            'email' => $validated['email'] ?? null,
-            'guardian_name' => $validated['guardian_name'] ?? null,
+            'library_id'      => $library->id,
+            'student_code'    => $studentCode,
+            'name'            => trim($validated['name']),
+            'mobile'          => trim($validated['mobile']),
+            'email'           => $validated['email'] ?? null,
+            'guardian_name'   => $validated['guardian_name'] ?? null,
             'guardian_mobile' => $validated['guardian_mobile'] ?? null,
-            'address' => $validated['address'] ?? null,
-            'admission_date' => $validated['admission_date'],
-            'seat_id' => null,
-            'total_fee' => 0,
-            'discount' => 0,
-            'payable_fee' => 0,
-            'status' => 'pending',
+            'address'         => $validated['address'] ?? null,
+            'photo'           => $photoPath,
+            'admission_date'  => $validated['admission_date'],
+            'shift_id'        => $validShiftId,
+            'seat_id'         => null,
+            'total_fee'       => 0,
+            'discount'        => 0,
+            'payable_fee'     => 0,
+            'status'          => 'pending',
         ]);
 
         return back()->with('submitted', true);
@@ -581,7 +866,6 @@ class StudentController extends Controller
     public function regenerateInviteToken(Request $request)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $library->update([
@@ -594,18 +878,29 @@ class StudentController extends Controller
     public function approvePending(Request $request, $id)
     {
         $library = $request->user()->library;
-
         abort_unless($library, 403, 'Library account not found.');
 
         $validated = $request->validate([
-            'admission_date' => ['required', 'date'],
-            'seat_id' => ['nullable', 'integer'],
-            'total_fee' => ['required', 'numeric', 'min:0', 'max:99999999'],
-            'discount' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
-            'initial_payment' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
-            'payment_method' => ['required', 'in:cash,upi,card,bank_transfer,other'],
+            'admission_date'   => ['required', 'date'],
+            'shift_id'         => ['required', 'integer'],
+            'seat_id'          => ['nullable', 'integer'],
+            'total_fee'        => ['required', 'numeric', 'min:0', 'max:99999999'],
+            'discount'         => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'initial_payment'  => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'payment_method'   => ['required', 'in:cash,upi,card,bank_transfer,other'],
             'reference_number' => ['nullable', 'string', 'max:100'],
         ]);
+
+        $shift = LibraryShift::where('library_id', $library->id)
+            ->where('id', $validated['shift_id'])
+            ->where('status', true)
+            ->first();
+
+        if (!$shift) {
+            throw ValidationException::withMessages([
+                'shift_id' => 'Selected shift is invalid or inactive.',
+            ]);
+        }
 
         $totalFee = (float) $validated['total_fee'];
         $discount = (float) ($validated['discount'] ?? 0);
@@ -624,7 +919,7 @@ class StudentController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($library, $id, $validated, $totalFee, $discount, $payableFee, $initialPayment) {
+        DB::transaction(function () use ($library, $id, $validated, $shift, $totalFee, $discount, $payableFee, $initialPayment) {
             $student = Student::where('library_id', $library->id)
                 ->where('status', 'pending')
                 ->lockForUpdate()
@@ -632,42 +927,36 @@ class StudentController extends Controller
 
             $seat = null;
             if (!empty($validated['seat_id'])) {
-                $seat = Seat::where('library_id', $library->id)
-                    ->where('id', $validated['seat_id'])
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$seat || $seat->status !== 'available') {
-                    throw ValidationException::withMessages([
-                        'seat_id' => 'Selected seat is no longer available.',
-                    ]);
-                }
-
-                $seat->update(['status' => 'occupied']);
+                $seat = $this->validateSeatForShift($library->id, (int) $validated['seat_id'], $shift);
             }
 
             $student->update([
                 'admission_date' => $validated['admission_date'],
-                'seat_id' => $seat?->id,
-                'total_fee' => $totalFee,
-                'discount' => $discount,
-                'payable_fee' => $payableFee,
-                'status' => 'active',
+                'shift_id'       => $shift->id,
+                'seat_id'        => $seat?->id,
+                'total_fee'      => $totalFee,
+                'discount'       => $discount,
+                'payable_fee'    => $payableFee,
+                'status'         => 'active',
             ]);
+
+            if ($seat) {
+                $this->syncSeatStatus($library->id, $seat->id);
+            }
 
             if ($initialPayment > 0) {
                 StudentPayment::create([
-                    'library_id' => $library->id,
-                    'student_id' => $student->id,
-                    'amount' => $initialPayment,
-                    'payment_method' => $validated['payment_method'],
-                    'payment_status' => 'paid',
-                    'payment_date' => now()->toDateString(),
+                    'library_id'       => $library->id,
+                    'student_id'       => $student->id,
+                    'amount'           => $initialPayment,
+                    'payment_method'   => $validated['payment_method'],
+                    'payment_status'   => 'paid',
+                    'payment_date'     => now()->toDateString(),
                     'reference_number' => $validated['reference_number'] ?? null,
                 ]);
             }
         });
 
-        return redirect('/library/students')->with('success', 'Student approved, seat & fee assigned successfully!');
+        return redirect('/library/students')->with('success', 'Student approved, shift, seat & fee assigned successfully!');
     }
 }

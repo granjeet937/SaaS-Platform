@@ -5,14 +5,11 @@
 @section('content')
     @php
         $library = auth()->user()->library;
+        if ($library && empty($library->admission_token)) {
+            $library->update(['admission_token' => strtoupper(\Illuminate\Support\Str::random(16))]);
+        }
         $inviteToken = $library->admission_token ?? '';
         $inviteUrl = $inviteToken ? url('/admission/' . $inviteToken) : '';
-        $availableSeats = $library
-            ? \App\Models\Seat::where('library_id', $library->id)
-                ->where('status', 'available')
-                ->orderBy('seat_number')
-                ->get()
-            : collect();
         $pendingCount = $library
             ? \App\Models\Student::where('library_id', $library->id)->where('status', 'pending')->count()
             : 0;
@@ -44,7 +41,7 @@
             class="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center mb-3 gap-2">
             <div>
                 <h4 class="fw-bold mb-0">Students Directory</h4>
-                <small class="text-muted">Manage admissions, self-registrations, and seats</small>
+                <small class="text-muted">Manage admissions, shifts, and seats</small>
             </div>
 
             <div class="d-flex align-items-center justify-content-between justify-content-sm-end gap-2">
@@ -155,14 +152,14 @@
                                 <i class="fa-solid fa-magnifying-glass text-muted"></i>
                             </span>
                             <input type="text" id="studentQuickSearch" class="form-control border-start-0"
-                                placeholder="Search name, mobile, code or seat...">
+                                placeholder="Search name, mobile, code, shift or seat...">
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        {{-- MOBILE CARD LIST (Visible on Phone < 768px) --}}
+        {{-- MOBILE CARD LIST --}}
         <div class="d-md-none" id="mobileStudentsList">
             @forelse ($students as $student)
                 @php
@@ -180,7 +177,9 @@
                             ' ' .
                             $student->student_code .
                             ' ' .
-                            ($student->seat?->seat_number ?? ''),
+                            ($student->seat?->seat_number ?? '') .
+                            ' ' .
+                            ($student->shift?->shift_name ?? ''),
                     );
                 @endphp
                 <div class="student-mobile-card p-3 mb-2 shadow-sm student-item" data-status="{{ $student->status }}"
@@ -196,7 +195,13 @@
                                     class="fw-bold text-dark text-decoration-none d-block text-truncate">
                                     {{ $student->name }}
                                 </a>
-                                <div class="text-muted" style="font-size: 0.74rem;">{{ $student->student_code }}</div>
+                                <div class="text-muted" style="font-size: 0.74rem;">
+                                    {{ $student->student_code }}
+                                    @if ($student->shift)
+                                        &bull; <span
+                                            class="text-primary fw-semibold">{{ $student->shift->shift_name }}</span>
+                                    @endif
+                                </div>
                             </div>
                         </div>
 
@@ -256,7 +261,7 @@
             @endforelse
         </div>
 
-        {{-- DESKTOP TABLE VIEW (Visible on Tablet/Desktop >= 768px) --}}
+        {{-- DESKTOP TABLE VIEW --}}
         <div class="card border-0 shadow-sm rounded-4 overflow-hidden d-none d-md-block">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
@@ -264,9 +269,9 @@
                         <tr>
                             <th class="ps-3">Student</th>
                             <th>Mobile</th>
+                            <th>Shift</th>
                             <th>Seat</th>
                             <th>Payable Fee</th>
-                            <th>Joined</th>
                             <th>Status</th>
                             <th class="text-end pe-3">Actions</th>
                         </tr>
@@ -288,7 +293,9 @@
                                         ' ' .
                                         $student->student_code .
                                         ' ' .
-                                        ($student->seat?->seat_number ?? ''),
+                                        ($student->seat?->seat_number ?? '') .
+                                        ' ' .
+                                        ($student->shift?->shift_name ?? ''),
                                 );
                             @endphp
                             <tr class="student-item" data-status="{{ $student->status }}"
@@ -317,6 +324,16 @@
                                 </td>
 
                                 <td>
+                                    @if ($student->shift)
+                                        <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">
+                                            {{ $student->shift->shift_name }}
+                                        </span>
+                                    @else
+                                        <span class="text-muted small">—</span>
+                                    @endif
+                                </td>
+
+                                <td>
                                     @if ($student->seat)
                                         <span class="badge bg-light text-dark border fw-semibold">
                                             <i
@@ -333,10 +350,6 @@
                                     @else
                                         ₹{{ number_format((float) $student->payable_fee, 0) }}
                                     @endif
-                                </td>
-
-                                <td class="small text-muted">
-                                    {{ $student->admission_date?->format('d M Y') ?? '—' }}
                                 </td>
 
                                 <td>
@@ -398,7 +411,7 @@
         @endif
     </div>
 
-    {{-- Responsive Approve & Assign Seat/Fee Modal --}}
+    {{-- Responsive Approve & Assign Shift/Seat/Fee Modal --}}
     <div class="modal fade" id="approveStudentModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
             <div class="modal-content border-0 shadow-lg rounded-4">
@@ -407,7 +420,7 @@
                     <div class="modal-header border-0 pb-1">
                         <div>
                             <h5 class="modal-title fw-bold mb-0">Approve & Activate Student</h5>
-                            <small class="text-muted" id="modalStudentSubtitle">Assign seat & monthly fee plan</small>
+                            <small class="text-muted" id="modalStudentSubtitle">Assign shift, seat & monthly fee</small>
                         </div>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
@@ -422,12 +435,30 @@
                             </div>
 
                             <div class="col-12 col-sm-6">
+                                <label class="form-label small fw-semibold mb-1">Select Shift <span
+                                        class="text-danger">*</span></label>
+                                <select name="shift_id" id="approveShiftSelect" class="form-select" required>
+                                    <option value="" data-fee="">-- Choose Shift --</option>
+                                    @foreach ($shifts as $sh)
+                                        <option value="{{ $sh->id }}" data-fee="{{ $sh->monthly_fee }}">
+                                            {{ $sh->shift_name }} (₹{{ (int) $sh->monthly_fee }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div class="col-12">
                                 <label class="form-label small fw-semibold mb-1">Assign Seat</label>
                                 <select name="seat_id" class="form-select">
                                     <option value="">-- No Seat (Optional) --</option>
                                     @foreach ($availableSeats as $seat)
+                                        @php
+                                            $usedHrs = $seat->activeStudents->sum(
+                                                fn($s) => $s->shift->duration_hours ?? 0,
+                                            );
+                                        @endphp
                                         <option value="{{ $seat->id }}">
-                                            {{ $seat->seat_number }}{{ $seat->section ? ' (' . $seat->section . ')' : '' }}
+                                            {{ $seat->seat_number }}{{ $seat->section ? ' (' . $seat->section . ')' : '' }}{{ $usedHrs > 0 ? " - {$usedHrs}/24h used" : '' }}
                                         </option>
                                     @endforeach
                                 </select>
@@ -492,21 +523,59 @@
 
     <script>
         function copyInviteLink(url) {
-            navigator.clipboard.writeText(url).then(() => {
-                const btn = document.getElementById('copyInviteBtn');
-                const originalHtml = btn.innerHTML;
-                btn.classList.replace('btn-primary', 'btn-dark');
+            const btn = document.getElementById('copyInviteBtn');
+            const originalHtml = btn.innerHTML;
+
+            function showCopiedFeedback() {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-dark');
                 btn.innerHTML = '<i class="fa-solid fa-check me-1"></i> Copied';
                 setTimeout(() => {
-                    btn.classList.replace('btn-dark', 'btn-primary');
+                    btn.classList.remove('btn-dark');
+                    btn.classList.add('btn-primary');
                     btn.innerHTML = originalHtml;
                 }, 2000);
-            });
+            }
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(url).then(showCopiedFeedback).catch(() => fallbackCopy(url));
+            } else {
+                fallbackCopy(url);
+            }
+
+            function fallbackCopy(text) {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-9999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showCopiedFeedback();
+                } catch (err) {
+                    alert('Copy failed. Please copy manually: ' + text);
+                }
+                document.body.removeChild(textArea);
+            }
         }
 
         document.addEventListener('DOMContentLoaded', function() {
             const approveModal = document.getElementById('approveStudentModal');
             if (approveModal) {
+                const totalEl = document.getElementById('approveTotalFee');
+                const discountEl = document.getElementById('approveDiscount');
+                const previewEl = document.getElementById('approvePayablePreview');
+                const shiftEl = document.getElementById('approveShiftSelect');
+
+                function updatePayable() {
+                    const total = parseFloat(totalEl.value) || 0;
+                    const disc = parseFloat(discountEl.value) || 0;
+                    const net = Math.max(0, total - disc);
+                    previewEl.textContent = '₹' + net.toFixed(2);
+                }
+
                 approveModal.addEventListener('show.bs.modal', function(event) {
                     const btn = event.relatedTarget;
                     const id = btn.getAttribute('data-id');
@@ -515,24 +584,24 @@
                     const date = btn.getAttribute('data-date');
 
                     document.getElementById('approveStudentForm').action =
-                    `/library/students/approve/${id}`;
+                        `/library/students/approve/${id}`;
                     document.getElementById('modalStudentSubtitle').textContent = `${name} (${mobile})`;
                     document.getElementById('approveAdmissionDate').value = date;
-                    document.getElementById('approveTotalFee').value = '';
-                    document.getElementById('approveDiscount').value = '0';
+                    if (shiftEl) shiftEl.value = '';
+                    totalEl.value = '';
+                    discountEl.value = '0';
                     document.getElementById('approveInitialPayment').value = '0';
-                    document.getElementById('approvePayablePreview').textContent = '₹0.00';
+                    previewEl.textContent = '₹0.00';
                 });
 
-                const totalEl = document.getElementById('approveTotalFee');
-                const discountEl = document.getElementById('approveDiscount');
-                const previewEl = document.getElementById('approvePayablePreview');
-
-                function updatePayable() {
-                    const total = parseFloat(totalEl.value) || 0;
-                    const disc = parseFloat(discountEl.value) || 0;
-                    const net = Math.max(0, total - disc);
-                    previewEl.textContent = '₹' + net.toFixed(2);
+                if (shiftEl) {
+                    shiftEl.addEventListener('change', function() {
+                        const fee = this.options[this.selectedIndex]?.dataset?.fee;
+                        if (fee !== undefined && fee !== '') {
+                            totalEl.value = fee;
+                            updatePayable();
+                        }
+                    });
                 }
 
                 totalEl.addEventListener('input', updatePayable);

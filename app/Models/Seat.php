@@ -24,4 +24,10 @@ class Seat extends Model
     {
         return $this->hasOne(Student::class, 'seat_id');
     }
+    public function activeStudents()
+    {
+        return $this->hasMany(Student::class, 'seat_id')
+            ->where('status', 'active')
+            ->with('shift');
+    }
 }

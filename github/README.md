@@ -1,2 +1,0 @@
-# SaaS-Platform
-SaaS-Platform

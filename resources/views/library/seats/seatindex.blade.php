@@ -4,14 +4,14 @@
     <style>
         .seat-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
             gap: 10px;
         }
 
         .seat-box {
             border: 2px solid #e2e8f0;
             border-radius: 10px;
-            padding: 8px 5px;
+            padding: 8px 6px;
             text-align: center;
             cursor: pointer;
             background: #fff;
@@ -28,6 +28,11 @@
         .seat-box.status-available {
             border-color: #bbf7d0;
             background: #f0fdf4;
+        }
+
+        .seat-box.status-partial {
+            border-color: #bae6fd;
+            background: #f0f9ff;
         }
 
         .seat-box.status-occupied {
@@ -66,27 +71,35 @@
         }
 
         .seat-section-tag {
-            font-size: 0.7rem;
-            padding: 2px 6px;
+            font-size: 0.68rem;
+            padding: 1px 6px;
             border-radius: 4px;
             background: rgba(15, 23, 42, 0.07);
             color: #334155;
             display: inline-block;
-            margin-top: 4px;
+            margin-top: 3px;
             max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
-        .seat-student-name {
-            font-size: 0.7rem;
-            color: #dc2626;
-            font-weight: 600;
-            margin-top: 4px;
+        .seat-shift-pill {
+            font-size: 0.64rem;
+            background: #e0f2fe;
+            color: #0369a1;
+            border-radius: 4px;
+            padding: 2px 4px;
+            margin-top: 3px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            font-weight: 600;
+        }
+
+        .seat-box.status-occupied .seat-shift-pill {
+            background: #fee2e2;
+            color: #b91c1c;
         }
 
         .legend-dot {
@@ -99,6 +112,20 @@
     </style>
 
     <div class="container-fluid py-3">
+        {{-- Shift Setup Warning if 0 shifts exist --}}
+        @if ($shifts->isEmpty())
+            <div class="alert alert-warning d-flex justify-content-between align-items-center py-2 mb-3">
+                <div class="small">
+                    <i class="fa-solid fa-triangle-exclamation me-1"></i>
+                    <strong>Shifts not configured yet!</strong> Create 6h, 8h, or 12h shifts first so you can assign
+                    shift-wise seats to students.
+                </div>
+                <a href="/library/shifts" class="btn btn-sm btn-warning fw-semibold">
+                    + Setup Shifts
+                </a>
+            </div>
+        @endif
+
         {{-- Header --}}
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
             <div>
@@ -111,8 +138,9 @@
 
             {{-- Color Legend --}}
             <div class="d-flex flex-wrap gap-3 small bg-white px-3 py-2 rounded shadow-sm border">
-                <span><span class="legend-dot bg-success"></span>Available ({{ $stats['available'] }})</span>
-                <span><span class="legend-dot bg-danger"></span>Occupied ({{ $stats['occupied'] }})</span>
+                <span><span class="legend-dot bg-success"></span>Empty ({{ $stats['available'] }})</span>
+                <span><span class="legend-dot bg-info"></span>Partial ({{ $stats['partial'] }})</span>
+                <span><span class="legend-dot bg-danger"></span>Full 24h ({{ $stats['occupied'] }})</span>
                 <span><span class="legend-dot bg-warning"></span>Maintenance ({{ $stats['maintenance'] }})</span>
                 <span><span class="legend-dot bg-primary"></span>Selected</span>
             </div>
@@ -144,7 +172,7 @@
                                 <i class="fa-solid fa-xmark me-1"></i> Clear
                             </button>
                             <span class="small text-muted align-self-center ms-1">
-                                Tip: <strong>Shift + Click</strong> se range select karein
+                                Tip: Use <strong>Shift + Click</strong> to select a range
                             </span>
                         </div>
                     </div>
@@ -231,14 +259,30 @@
                 @endforeach
             </div>
 
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
+                {{-- Shift Availability Filter --}}
+                @if ($shifts->isNotEmpty())
+                    <select id="shiftFilter" class="form-select form-select-sm" style="width: 195px;">
+                        <option value="all">All Shifts</option>
+                        @foreach ($shifts as $sh)
+                            <option value="free_{{ $sh->id }}" data-shift-id="{{ $sh->id }}"
+                                data-duration="{{ $sh->duration_hours }}"
+                                data-start="{{ $sh->start_time ? substr($sh->start_time, 0, 5) : '' }}"
+                                data-end="{{ $sh->end_time ? substr($sh->end_time, 0, 5) : '' }}">
+                                Free in {{ $sh->shift_name }}
+                            </option>
+                        @endforeach
+                    </select>
+                @endif
+
                 <select id="statusFilter" class="form-select form-select-sm" style="width: 145px;">
                     <option value="all">All Status</option>
-                    <option value="available">Available</option>
-                    <option value="occupied">Occupied</option>
+                    <option value="available">Empty (0h)</option>
+                    <option value="partial">Partial Occupied</option>
+                    <option value="occupied">Full (24h)</option>
                     <option value="maintenance">Maintenance</option>
                 </select>
-                <input type="text" id="seatSearchInput" class="form-control form-control-sm" style="width: 180px;"
+                <input type="text" id="seatSearchInput" class="form-control form-control-sm" style="width: 175px;"
                     placeholder="Search seat or student...">
             </div>
         </div>
@@ -248,17 +292,35 @@
             <div class="card-body">
                 @if ($seats->isEmpty())
                     <div class="text-center py-5 text-muted">
-                        Library ki <strong>total_seats</strong> 0 set hai. Pehle library profile mein total seats set
-                        karein.
+                        Library <strong>total_seats</strong> is set to 0. Please configure total seats in your library
+                        profile first.
                     </div>
                 @else
                     <div class="seat-grid" id="seatGrid">
                         @foreach ($seats as $index => $seat)
-                            <div class="seat-box status-{{ $seat->status }}" data-id="{{ $seat->id }}"
+                            @php
+                                $bookedShiftIds = $seat->activeStudents->pluck('shift_id')->filter()->implode(',');
+                                $bookedSlots = $seat->activeStudents
+                                    ->map(function ($st) {
+                                        return [
+                                            'id' => $st->shift_id,
+                                            'duration' => $st->shift->duration_hours ?? 0,
+                                            'start' => $st->shift?->start_time
+                                                ? substr($st->shift->start_time, 0, 5)
+                                                : null,
+                                            'end' => $st->shift?->end_time ? substr($st->shift->end_time, 0, 5) : null,
+                                        ];
+                                    })
+                                    ->values();
+                                $studentNames = $seat->activeStudents->pluck('name')->implode(' ');
+                            @endphp
+                            <div class="seat-box status-{{ $seat->computed_status }}" data-id="{{ $seat->id }}"
                                 data-index="{{ $index + 1 }}" data-section="{{ $seat->section ?? 'unassigned' }}"
-                                data-status="{{ $seat->status }}"
-                                data-search="{{ strtolower($seat->seat_number . ' ' . ($seat->section ?? '') . ' ' . ($seat->student->name ?? '')) }}"
-                                title="Seat #{{ $index + 1 }} ({{ $seat->seat_number }})">
+                                data-status="{{ $seat->computed_status }}" data-used-hours="{{ $seat->used_hours }}"
+                                data-booked-shifts="{{ $bookedShiftIds }}"
+                                data-booked-slots='@json($bookedSlots)'
+                                data-search="{{ strtolower($seat->seat_number . ' ' . ($seat->section ?? '') . ' ' . $studentNames) }}"
+                                title="Seat #{{ $index + 1 }} ({{ $seat->seat_number }}) - {{ $seat->used_hours }}/24 hrs booked">
 
                                 <i class="fa-solid fa-circle-check seat-check-badge"></i>
 
@@ -270,13 +332,18 @@
                                     {{ $seat->section ?: 'No Section' }}
                                 </div>
 
-                                @if ($seat->status === 'occupied' && $seat->student)
-                                    <div class="seat-student-name" title="{{ $seat->student->name }}">
-                                        {{ $seat->student->name }}
+                                @if ($seat->activeStudents->isNotEmpty())
+                                    <div class="mt-1">
+                                        @foreach ($seat->activeStudents as $st)
+                                            <div class="seat-shift-pill"
+                                                title="{{ $st->name }} ({{ $st->shift->shift_name ?? '' }})">
+                                                {{ $st->shift->duration_hours ?? '?' }}h: {{ $st->name }}
+                                            </div>
+                                        @endforeach
                                     </div>
                                 @else
-                                    <div class="text-muted text-capitalize" style="font-size: 0.6rem;">
-                                        {{ $seat->status }}
+                                    <div class="text-muted text-capitalize mt-1" style="font-size: 0.65rem;">
+                                        {{ $seat->computed_status === 'maintenance' ? 'Maintenance' : 'Available (0/24h)' }}
                                     </div>
                                 @endif
                             </div>
@@ -296,10 +363,45 @@
             const applyAlignBtn = document.getElementById('applyAlignBtn');
             const sectionInput = document.getElementById('sectionInput');
             const statusFilter = document.getElementById('statusFilter');
+            const shiftFilter = document.getElementById('shiftFilter');
             const seatSearchInput = document.getElementById('seatSearchInput');
 
             let activeSectionFilter = 'all';
             let lastClickedIndex = null;
+
+            function toMinutes(timeStr) {
+                if (!timeStr) return null;
+                const [h, m] = timeStr.split(':').map(Number);
+                return h * 60 + m;
+            }
+
+            function slotsOverlap(s1Start, s1End, s2Start, s2End) {
+                const a1 = toMinutes(s1Start),
+                    a2 = toMinutes(s1End);
+                const b1 = toMinutes(s2Start),
+                    b2 = toMinutes(s2End);
+                if (a1 === null || a2 === null || b1 === null || b2 === null) return false;
+
+                const segsA = a2 > a1 ? [
+                    [a1, a2]
+                ] : [
+                    [a1, 1440],
+                    [0, a2]
+                ];
+                const segsB = b2 > b1 ? [
+                    [b1, b2]
+                ] : [
+                    [b1, 1440],
+                    [0, b2]
+                ];
+
+                for (const [x1, x2] of segsA) {
+                    for (const [y1, y2] of segsB) {
+                        if (x1 < y2 && x2 > y1) return true;
+                    }
+                }
+                return false;
+            }
 
             function syncSelectionUI() {
                 selectedInputsDiv.innerHTML = '';
@@ -318,7 +420,19 @@
 
             function applyFilters() {
                 const statusVal = statusFilter.value;
+                const shiftVal = shiftFilter ? shiftFilter.value : 'all';
                 const query = seatSearchInput.value.trim().toLowerCase();
+
+                let targetShift = null;
+                if (shiftFilter && shiftVal.startsWith('free_')) {
+                    const opt = shiftFilter.options[shiftFilter.selectedIndex];
+                    targetShift = {
+                        id: parseInt(opt.dataset.shiftId, 10),
+                        duration: parseInt(opt.dataset.duration, 10) || 0,
+                        start: opt.dataset.start || null,
+                        end: opt.dataset.end || null,
+                    };
+                }
 
                 seatBoxes.forEach(box => {
                     const matchSection = activeSectionFilter === 'all' || box.dataset.section ===
@@ -326,11 +440,26 @@
                     const matchStatus = statusVal === 'all' || box.dataset.status === statusVal;
                     const matchSearch = !query || box.dataset.search.includes(query);
 
-                    box.style.display = (matchSection && matchStatus && matchSearch) ? '' : 'none';
+                    let matchShift = true;
+                    if (targetShift) {
+                        const isBlocked = box.dataset.status === 'maintenance' || box.dataset.status ===
+                            'occupied';
+                        const usedHours = parseInt(box.dataset.usedHours, 10) || 0;
+                        const bookedSlots = JSON.parse(box.dataset.bookedSlots || '[]');
+
+                        const sameShift = bookedSlots.some(s => s.id === targetShift.id);
+                        const hasOverlap = bookedSlots.some(s => slotsOverlap(targetShift.start, targetShift
+                            .end, s.start, s.end));
+                        const exceeds24h = (usedHours + targetShift.duration) > 24;
+
+                        matchShift = !isBlocked && !sameShift && !hasOverlap && !exceeds24h;
+                    }
+
+                    box.style.display = (matchSection && matchStatus && matchSearch && matchShift) ? '' :
+                        'none';
                 });
             }
 
-            // Single click & Shift+Click range selection
             seatBoxes.forEach((box, idx) => {
                 box.addEventListener('click', function(e) {
                     const id = this.dataset.id;
@@ -359,7 +488,6 @@
                 });
             });
 
-            // Range selection by number (From - To)
             document.getElementById('selectRangeBtn').addEventListener('click', function() {
                 const from = parseInt(document.getElementById('rangeFrom').value, 10);
                 const to = parseInt(document.getElementById('rangeTo').value, 10);
@@ -379,7 +507,6 @@
                 syncSelectionUI();
             });
 
-            // Select all visible
             document.getElementById('selectAllVisibleBtn').addEventListener('click', function() {
                 seatBoxes.forEach(box => {
                     if (box.style.display !== 'none') {
@@ -390,7 +517,6 @@
                 syncSelectionUI();
             });
 
-            // Clear selection
             document.getElementById('clearSelectionBtn').addEventListener('click', function() {
                 selectedIds.clear();
                 lastClickedIndex = null;
@@ -398,7 +524,6 @@
                 syncSelectionUI();
             });
 
-            // Quick section preset chips
             document.querySelectorAll('.quick-section-chip').forEach(chip => {
                 chip.addEventListener('click', function() {
                     sectionInput.value = this.dataset.section;
@@ -406,7 +531,6 @@
                 });
             });
 
-            // Section filter buttons
             const sectionFilterBtns = document.querySelectorAll('.section-filter-btn');
             sectionFilterBtns.forEach(btn => {
                 btn.addEventListener('click', function() {
@@ -418,6 +542,7 @@
             });
 
             statusFilter.addEventListener('change', applyFilters);
+            if (shiftFilter) shiftFilter.addEventListener('change', applyFilters);
             seatSearchInput.addEventListener('input', applyFilters);
         });
     </script>

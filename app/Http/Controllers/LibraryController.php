@@ -58,11 +58,21 @@ class LibraryController extends Controller
                     $logoPath = $request->file('logo')->store('libraries/logos', 'public');
                     Log::info('Library logo uploaded successfully.', ['path' => $logoPath]);
                 }
+                $cleanName = preg_replace('/[^a-zA-Z\s]/', '', trim($validated['library_name']));
+                $words = array_values(array_filter(explode(' ', $cleanName)));
+
+                if (count($words) >= 3) {
+                    $prefix = strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1) . substr($words[2], 0, 1));
+                } else {
+                    $joined = str_replace(' ', '', $cleanName);
+                    $prefix = strtoupper(str_pad(substr($joined, 0, 3), 3, 'X'));
+                }
+                $sequence = Library::count() + 1;
 
                 do {
-                    $libraryCode = 'LIB-' . strtoupper(Str::random(8));
+                    $libraryCode = 'LIB-' . $prefix . str_pad($sequence, 3, '0', STR_PAD_LEFT);
+                    $sequence++;
                 } while (Library::where('library_code', $libraryCode)->exists());
-
                 $library = Library::create([
                     'library_code' => $libraryCode,
                     'library_type' => $validated['library_type'],
@@ -91,18 +101,20 @@ class LibraryController extends Controller
                     'library_code' => $library->library_code,
                     'user_id'      => $user->id
                 ]);
+
                 $freePlan = Plan::where('slug', 'free-trial')
                     ->where('status', 1)
                     ->firstOrFail();
 
                 Subscription::create([
-                    'library_id' => $library->id,
-                    'plan_id' => $freePlan->id,
-                    'start_date' => Carbon::today(),
-                    'end_date' => Carbon::today()->addDays($freePlan->duration_days),
-                    'status' => 'active',
+                    'library_id'     => $library->id,
+                    'plan_id'        => $freePlan->id,
+                    'start_date'     => Carbon::today(),
+                    'end_date'       => Carbon::today()->addDays($freePlan->duration_days),
+                    'status'         => 'active',
                     'payment_status' => 'not_required',
                 ]);
+
                 return $library;
             });
 

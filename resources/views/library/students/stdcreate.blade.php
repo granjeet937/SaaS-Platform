@@ -4,7 +4,6 @@
 
 @section('content')
     <div class="container-fluid px-2 px-md-3 py-2 pb-5 pb-md-3" style="max-width: 960px;">
-        {{-- Compact Header --}}
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
                 <h5 class="fw-bold mb-0">New Student Admission</h5>
@@ -14,6 +13,16 @@
                 <i class="fa-solid fa-arrow-left me-1"></i> Back
             </a>
         </div>
+
+        @if ($shifts->isEmpty())
+            <div class="alert alert-warning d-flex justify-content-between align-items-center py-2 small">
+                <div>
+                    <i class="fa-solid fa-triangle-exclamation me-1"></i>
+                    <strong>No active shifts found!</strong> Please configure shifts before admitting students.
+                </div>
+                <a href="/library/shifts" class="btn btn-sm btn-warning fw-semibold">Setup Shifts</a>
+            </div>
+        @endif
 
         @if ($errors->any())
             <div class="alert alert-danger alert-dismissible fade show py-2 small" role="alert">
@@ -26,7 +35,7 @@
             </div>
         @endif
 
-        <form method="POST" action="/library/students/store" id="admissionForm">
+        <form method="POST" action="/library/students/store" id="admissionForm" enctype="multipart/form-data">
             @csrf
 
             {{-- 1. Basic Student Info --}}
@@ -54,23 +63,73 @@
                                 required>
                         </div>
 
-                        <div class="col-6 col-sm-6">
+                        <div class="col-6 col-sm-4">
                             <label class="form-label small fw-semibold mb-1">Admission Date <span
                                     class="text-danger">*</span></label>
                             <input type="date" name="admission_date" class="form-control form-control-sm"
                                 value="{{ old('admission_date', date('Y-m-d')) }}" required>
                         </div>
 
-                        <div class="col-6 col-sm-6">
-                            <label class="form-label small fw-semibold mb-1">Assign Seat</label>
-                            <select name="seat_id" class="form-select form-select-sm">
-                                <option value="">No Seat ({{ $seats->count() }} free)</option>
-                                @foreach ($seats as $seat)
-                                    <option value="{{ $seat->id }}" {{ old('seat_id') == $seat->id ? 'selected' : '' }}>
-                                        {{ $seat->seat_number }}{{ $seat->section ? ' - ' . $seat->section : '' }}
+                        {{-- Shift Dropdown --}}
+                        <div class="col-6 col-sm-4">
+                            <label class="form-label small fw-semibold mb-1">Select Shift <span
+                                    class="text-danger">*</span></label>
+                            <select name="shift_id" id="shift_id" class="form-select form-select-sm" required>
+                                <option value="" data-fee="">-- Choose Shift --</option>
+                                @foreach ($shifts as $shift)
+                                    <option value="{{ $shift->id }}" data-fee="{{ $shift->monthly_fee }}"
+                                        data-duration="{{ $shift->duration_hours }}"
+                                        data-start="{{ $shift->start_time ? substr($shift->start_time, 0, 5) : '' }}"
+                                        data-end="{{ $shift->end_time ? substr($shift->end_time, 0, 5) : '' }}"
+                                        {{ old('shift_id') == $shift->id ? 'selected' : '' }}>
+                                        {{ $shift->shift_name }} (₹{{ (int) $shift->monthly_fee }})
                                     </option>
                                 @endforeach
                             </select>
+                        </div>
+
+                        {{-- Shift-Aware Seat Dropdown --}}
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label small fw-semibold mb-1">Assign Seat</label>
+                            <select name="seat_id" id="seat_id" class="form-select form-select-sm">
+                                <option value="">-- No Seat (Optional) --</option>
+                                @foreach ($seats as $seat)
+                                    @php
+                                        $usedHours = $seat->activeStudents->sum(
+                                            fn($s) => $s->shift->duration_hours ?? 0,
+                                        );
+                                        $bookedSlots = $seat->activeStudents
+                                            ->map(
+                                                fn($st) => [
+                                                    'id' => $st->shift_id,
+                                                    'start' => $st->shift?->start_time
+                                                        ? substr($st->shift->start_time, 0, 5)
+                                                        : null,
+                                                    'end' => $st->shift?->end_time
+                                                        ? substr($st->shift->end_time, 0, 5)
+                                                        : null,
+                                                ],
+                                            )
+                                            ->values();
+                                        $baseLabel =
+                                            $seat->seat_number .
+                                            ($seat->section ? ' - ' . $seat->section : '') .
+                                            ($usedHours > 0 ? " ({$usedHours}/24h used)" : ' (Empty)');
+                                    @endphp
+                                    <option value="{{ $seat->id }}" data-base-label="{{ $baseLabel }}"
+                                        data-used-hours="{{ $usedHours }}"
+                                        data-booked-slots='@json($bookedSlots)'
+                                        {{ old('seat_id') == $seat->id ? 'selected' : '' }}>
+                                        {{ $baseLabel }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold mb-1">Student Photo (Optional)</label>
+                            <input type="file" name="photo" class="form-control form-control-sm"
+                                accept="image/png,image/jpeg,image/webp">
                         </div>
                     </div>
 
@@ -94,7 +153,8 @@
                                 <div class="col-6 col-sm-4">
                                     <label class="form-label small text-muted mb-1">Guardian Name</label>
                                     <input type="text" name="guardian_name" class="form-control form-control-sm"
-                                        value="{{ old('guardian_name') }}" placeholder="Parent/Guardian" maxlength="100">
+                                        value="{{ old('guardian_name') }}" placeholder="Parent/Guardian"
+                                        maxlength="100">
                                 </div>
                                 <div class="col-6 col-sm-4">
                                     <label class="form-label small text-muted mb-1">Guardian Mobile</label>
@@ -216,6 +276,8 @@
 @push('scripts')
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            const shiftSelect = document.getElementById('shift_id');
+            const seatSelect = document.getElementById('seat_id');
             const total = document.getElementById('total_fee');
             const discount = document.getElementById('discount');
             const payment = document.getElementById('initial_payment');
@@ -225,6 +287,78 @@
 
             let currentPayable = 0;
 
+            function toMinutes(t) {
+                if (!t) return null;
+                const [h, m] = t.split(':').map(Number);
+                return h * 60 + m;
+            }
+
+            function slotsOverlap(s1Start, s1End, s2Start, s2End) {
+                const a1 = toMinutes(s1Start),
+                    a2 = toMinutes(s1End);
+                const b1 = toMinutes(s2Start),
+                    b2 = toMinutes(s2End);
+                if (a1 === null || a2 === null || b1 === null || b2 === null) return false;
+
+                const segsA = a2 > a1 ? [
+                    [a1, a2]
+                ] : [
+                    [a1, 1440],
+                    [0, a2]
+                ];
+                const segsB = b2 > b1 ? [
+                    [b1, b2]
+                ] : [
+                    [b1, 1440],
+                    [0, b2]
+                ];
+
+                for (const [x1, x2] of segsA) {
+                    for (const [y1, y2] of segsB) {
+                        if (x1 < y2 && x2 > y1) return true;
+                    }
+                }
+                return false;
+            }
+
+            function filterSeatsForSelectedShift() {
+                if (!shiftSelect || !seatSelect) return;
+
+                const opt = shiftSelect.options[shiftSelect.selectedIndex];
+                const shiftId = opt && opt.value ? parseInt(opt.value, 10) : null;
+                const shiftDur = opt ? (parseInt(opt.dataset.duration, 10) || 0) : 0;
+                const shiftStart = opt ? (opt.dataset.start || null) : null;
+                const shiftEnd = opt ? (opt.dataset.end || null) : null;
+
+                Array.from(seatSelect.options).forEach(seatOpt => {
+                    if (!seatOpt.value) return;
+
+                    const baseLabel = seatOpt.dataset.baseLabel;
+                    const usedHours = parseInt(seatOpt.dataset.usedHours, 10) || 0;
+                    const bookedSlots = JSON.parse(seatOpt.dataset.bookedSlots || '[]');
+
+                    if (!shiftId) {
+                        seatOpt.disabled = false;
+                        seatOpt.textContent = baseLabel;
+                        return;
+                    }
+
+                    const sameShift = bookedSlots.some(s => s.id === shiftId);
+                    const overlap = bookedSlots.some(s => slotsOverlap(shiftStart, shiftEnd, s.start, s
+                        .end));
+                    const exceeds = (usedHours + shiftDur) > 24;
+
+                    if (sameShift || overlap || exceeds) {
+                        seatOpt.disabled = true;
+                        seatOpt.textContent = `${baseLabel} — Booked in this shift`;
+                        if (seatOpt.selected) seatSelect.value = '';
+                    } else {
+                        seatOpt.disabled = false;
+                        seatOpt.textContent = baseLabel;
+                    }
+                });
+            }
+
             function calculateFees() {
                 const totalAmount = Math.max(0, Number(total.value) || 0);
                 const discountAmount = Math.max(0, Number(discount.value) || 0);
@@ -233,6 +367,20 @@
 
                 payable.value = currentPayable.toFixed(2);
                 balance.textContent = Math.max(0, currentPayable - received).toFixed(2);
+            }
+
+            if (shiftSelect) {
+                shiftSelect.addEventListener('change', function() {
+                    const selectedOption = this.options[this.selectedIndex];
+                    const shiftFee = selectedOption.dataset.fee;
+                    if (shiftFee !== undefined && shiftFee !== '') {
+                        total.value = shiftFee;
+                        calculateFees();
+                    }
+                    filterSeatsForSelectedShift();
+                });
+
+                filterSeatsForSelectedShift();
             }
 
             if (total) {

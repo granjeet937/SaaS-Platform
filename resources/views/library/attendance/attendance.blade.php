@@ -8,26 +8,30 @@
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
             <div>
                 <h5 class="fw-bold mb-0">Daily Attendance</h5>
-                <small class="text-muted">1-tap check-in, check-out & daily register</small>
+                <small class="text-muted">Shift-wise check-in, check-out & daily register</small>
             </div>
 
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <form method="GET" action="/library/attendance" class="d-flex align-items-center gap-1">
                     <input type="hidden" name="filter" value="{{ $filter }}">
+                    <input type="hidden" name="shift_id" value="{{ $shiftId }}">
                     <input type="hidden" name="search" value="{{ $search }}">
                     <input type="date" name="date" class="form-control form-control-sm" value="{{ $date }}"
                         onchange="this.form.submit()">
                 </form>
+
                 @if ($unmarkedCount > 0)
                     <form method="POST" action="/library/attendance/mark-all-present"
-                        onsubmit="return confirm('Check-in all {{ $unmarkedCount }} unmarked active students?');">
+                        onsubmit="return confirm('Check-in all {{ $unmarkedCount }} unmarked active students{{ $shiftId !== 'all' ? ' in this shift' : '' }}?');">
                         @csrf
                         <input type="hidden" name="attendance_date" value="{{ $date }}">
+                        <input type="hidden" name="shift_id" value="{{ $shiftId }}">
                         <button type="submit" class="btn btn-success btn-sm">
                             <i class="fa-solid fa-check-double me-1"></i> Check-in All ({{ $unmarkedCount }})
                         </button>
                     </form>
                 @endif
+
                 <a href="/library/attendance/kiosk" class="btn btn-dark btn-sm">
                     <i class="fa-solid fa-tablet-screen-button me-1"></i> Start Kiosk Mode
                 </a>
@@ -73,22 +77,41 @@
         <div class="card border-0 shadow-sm rounded-3">
             <div class="card-header bg-white py-2 px-3 border-bottom">
                 <div class="row g-2 align-items-center">
-                    <div class="col-12 col-md-7">
+                    <div class="col-12 col-lg-5">
                         <div class="btn-group btn-group-sm flex-wrap" role="group">
                             @foreach (['all' => 'All', 'inside' => 'Inside', 'present' => 'Present', 'unmarked' => 'Unmarked', 'absent' => 'Absent'] as $key => $label)
-                                <a href="/library/attendance?date={{ $date }}&filter={{ $key }}&search={{ urlencode($search) }}"
+                                <a href="/library/attendance?date={{ $date }}&filter={{ $key }}&shift_id={{ $shiftId }}&search={{ urlencode($search) }}"
                                     class="btn {{ $filter === $key ? 'btn-primary' : 'btn-outline-primary' }}">
                                     {{ $label }}
                                 </a>
                             @endforeach
                         </div>
                     </div>
-                    <div class="col-12 col-md-5">
+
+                    <div class="col-12 col-sm-6 col-lg-3">
+                        <form method="GET" action="/library/attendance">
+                            <input type="hidden" name="date" value="{{ $date }}">
+                            <input type="hidden" name="filter" value="{{ $filter }}">
+                            <input type="hidden" name="search" value="{{ $search }}">
+                            <select name="shift_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                                <option value="all" {{ $shiftId === 'all' ? 'selected' : '' }}>All Shifts</option>
+                                @foreach ($shifts as $sh)
+                                    <option value="{{ $sh->id }}"
+                                        {{ (string) $shiftId === (string) $sh->id ? 'selected' : '' }}>
+                                        {{ $sh->shift_name }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </form>
+                    </div>
+
+                    <div class="col-12 col-sm-6 col-lg-4">
                         <form method="GET" action="/library/attendance" class="input-group input-group-sm">
                             <input type="hidden" name="date" value="{{ $date }}">
                             <input type="hidden" name="filter" value="{{ $filter }}">
+                            <input type="hidden" name="shift_id" value="{{ $shiftId }}">
                             <input type="text" name="search" class="form-control"
-                                placeholder="Search student or code..." value="{{ $search }}">
+                                placeholder="Search student, mobile or code..." value="{{ $search }}">
                             <button type="submit" class="btn btn-outline-secondary">
                                 <i class="fa-solid fa-magnifying-glass"></i>
                             </button>
@@ -103,6 +126,7 @@
                         <thead class="table-light small">
                             <tr>
                                 <th class="ps-3">Student</th>
+                                <th>Shift</th>
                                 <th>Seat</th>
                                 <th>Status</th>
                                 <th>In / Out</th>
@@ -122,14 +146,47 @@
                                         $att && $att->check_out_time
                                             ? \Carbon\Carbon::parse($att->check_out_time)->format('h:i A')
                                             : null;
+                                    $initials =
+                                        collect(explode(' ', trim($st->name)))
+                                            ->filter()
+                                            ->take(2)
+                                            ->map(fn($p) => strtoupper(substr($p, 0, 1)))
+                                            ->implode('') ?:
+                                        'ST';
                                 @endphp
                                 <tr>
                                     <td class="ps-3">
-                                        <a href="/library/students/view/{{ $st->id }}"
-                                            class="fw-semibold text-decoration-none text-dark">
-                                            {{ $st->name }}
-                                        </a>
-                                        <div class="text-muted" style="font-size: 0.74rem;">{{ $st->student_code }}</div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            @if ($st->photo)
+                                                <img src="{{ route('students.photo', $st->id) }}"
+                                                    alt="{{ $st->name }}"
+                                                    class="rounded-circle border object-fit-cover flex-shrink-0"
+                                                    style="width: 34px; height: 34px;">
+                                            @else
+                                                <div class="rounded-circle bg-primary-subtle text-primary fw-bold d-flex align-items-center justify-content-center flex-shrink-0"
+                                                    style="width: 34px; height: 34px; font-size: 0.78rem;">
+                                                    {{ $initials }}
+                                                </div>
+                                            @endif
+                                            <div>
+                                                <a href="/library/students/view/{{ $st->id }}"
+                                                    class="fw-semibold text-decoration-none text-dark">
+                                                    {{ $st->name }}
+                                                </a>
+                                                <div class="text-muted" style="font-size: 0.74rem;">
+                                                    {{ $st->student_code }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if ($st->shift)
+                                            <span
+                                                class="badge bg-info-subtle text-info-emphasis border border-info-subtle">
+                                                {{ $st->shift->shift_name }}
+                                            </span>
+                                        @else
+                                            <span class="text-muted small">—</span>
+                                        @endif
                                     </td>
                                     <td>
                                         @if ($st->seat)
@@ -208,7 +265,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="5" class="text-center py-4 text-muted">
+                                    <td colspan="6" class="text-center py-4 text-muted">
                                         No active students found for this filter.
                                     </td>
                                 </tr>

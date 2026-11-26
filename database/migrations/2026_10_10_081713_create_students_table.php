@@ -1,4 +1,3 @@
-
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -12,11 +11,21 @@ return new class extends Migration
         Schema::create('students', function (Blueprint $table) {
             $table->id();
 
-            $table->unsignedBigInteger('library_id');
+            $table->foreignId('library_id')
+                ->constrained('libraries')
+                ->cascadeOnDelete();
 
-            // Unique student code with shorter index length
+            $table->foreignId('seat_id')
+                ->nullable()
+                ->constrained('seats')
+                ->nullOnDelete();
+
+            $table->foreignId('shift_id')
+                ->nullable()
+                ->constrained('library_shifts')
+                ->nullOnDelete();
+
             $table->string('student_code', 50)->unique();
-
             $table->string('name', 100);
             $table->string('mobile', 20);
             $table->string('email', 100)->nullable();
@@ -25,15 +34,17 @@ return new class extends Migration
             $table->string('guardian_mobile', 20)->nullable();
 
             $table->text('address')->nullable();
+            $table->string('photo', 255)->nullable();
+
             $table->date('admission_date');
+            $table->decimal('total_fee', 10, 2)->default(0);
+            $table->decimal('discount', 10, 2)->default(0);
+            $table->decimal('payable_fee', 10, 2)->default(0);
             $table->string('status', 20)->default('active');
 
             $table->timestamps();
 
-            $table->foreign('library_id')
-                ->references('id')
-                ->on('libraries')
-                ->cascadeOnDelete();
+            $table->index(['library_id', 'status']);
         });
     }
 

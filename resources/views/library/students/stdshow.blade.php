@@ -1,29 +1,59 @@
 @extends('layouts.library')
 
+@section('title', $student->name . ' — Student Profile')
+
 @section('content')
+    @php
+        $initials =
+            collect(explode(' ', trim($student->name)))
+                ->filter()
+                ->take(2)
+                ->map(fn($p) => strtoupper(substr($p, 0, 1)))
+                ->implode('') ?:
+            'ST';
+    @endphp
+
     <div class="container-fluid py-3">
         {{-- Top Header Bar --}}
-        <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
-            <div>
-                <div class="d-flex align-items-center gap-2">
-                    <h4 class="mb-0 fw-bold">{{ $student->name }}</h4>
-                    @if ($student->status === 'active')
-                        <span class="badge bg-success-subtle text-success border border-success-subtle text-capitalize">
-                            {{ $student->status }}
-                        </span>
-                    @else
-                        <span
-                            class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-capitalize">
-                            {{ $student->status }}
-                        </span>
-                    @endif
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+            <div class="d-flex align-items-center gap-3">
+                @if ($student->photo)
+                    <img src="{{ route('students.photo', $student->id) }}" alt="{{ $student->name }}"
+                        class="rounded-circle border shadow-sm object-fit-cover flex-shrink-0"
+                        style="width: 58px; height: 58px;">
+                @else
+                    <div class="rounded-circle bg-primary-subtle text-primary fw-bold d-flex align-items-center justify-content-center border flex-shrink-0"
+                        style="width: 58px; height: 58px; font-size: 1.2rem;">
+                        {{ $initials }}
+                    </div>
+                @endif
+
+                <div>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <h4 class="mb-0 fw-bold">{{ $student->name }}</h4>
+                        @if ($student->status === 'active')
+                            <span class="badge bg-success-subtle text-success border border-success-subtle text-capitalize">
+                                {{ $student->status }}
+                            </span>
+                        @else
+                            <span
+                                class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-capitalize">
+                                {{ $student->status }}
+                            </span>
+                        @endif
+                        @if ($student->shift)
+                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">
+                                <i class="fa-regular fa-clock me-1"></i>{{ $student->shift->shift_name }}
+                            </span>
+                        @endif
+                    </div>
+                    <p class="text-muted mb-0 small mt-1">
+                        Student Code: <strong>{{ $student->student_code }}</strong>
+                        &bull; Admitted on:
+                        <strong>{{ $student->admission_date ? $student->admission_date->format('d M Y') : '—' }}</strong>
+                        &bull; Next Due Date: <strong class="text-primary">{{ $nextDueDate->format('d M Y') }}</strong>
+                    </p>
                 </div>
-                <p class="text-muted mb-0 small mt-1">
-                    Student Code: <strong>{{ $student->student_code }}</strong>
-                    &bull; Admitted on:
-                    <strong>{{ $student->admission_date ? $student->admission_date->format('d M Y') : '—' }}</strong>
-                    &bull; Next Due Date: <strong class="text-primary">{{ $nextDueDate->format('d M Y') }}</strong>
-                </p>
             </div>
 
             <div class="d-flex flex-wrap gap-2">
@@ -140,32 +170,43 @@
         </div>
 
         <div class="row g-4">
-            {{-- Left Column: Student & Seat Details --}}
+            {{-- Left Column: Shift, Seat & Student Details --}}
             <div class="col-lg-5">
-                {{-- Seat Information Card --}}
+                {{-- Shift & Seat Information Card --}}
                 <div class="card border-0 shadow-sm mb-4">
                     <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
                         <h6 class="mb-0 fw-bold">
-                            <i class="fa-solid fa-chair text-primary me-2"></i>Assigned Seat Details
+                            <i class="fa-solid fa-chair text-primary me-2"></i>Shift & Seat Allocation
                         </h6>
                         <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal"
                             data-bs-target="#changeSeatModal">
-                            <i class="fa-solid fa-right-left me-1"></i>
-                            {{ $student->seat ? 'Change Seat' : 'Assign Seat' }}
+                            <i class="fa-solid fa-right-left me-1"></i> Change Shift / Seat
                         </button>
                     </div>
                     <div class="card-body">
                         <div class="row g-3">
                             <div class="col-6">
-                                <div class="text-muted small">Seat Number</div>
+                                <div class="text-muted small">Assigned Shift</div>
+                                @if ($student->shift)
+                                    <div class="fw-bold text-dark">{{ $student->shift->shift_name }}</div>
+                                    <div class="text-muted" style="font-size: 0.75rem;">
+                                        {{ $student->shift->shift_code }} &bull; {{ $student->shift->duration_hours }} Hrs
+                                        @if ($student->shift->start_time && $student->shift->end_time)
+                                            <br>{{ \Carbon\Carbon::parse($student->shift->start_time)->format('h:i A') }}
+                                            – {{ \Carbon\Carbon::parse($student->shift->end_time)->format('h:i A') }}
+                                        @endif
+                                    </div>
+                                @else
+                                    <div class="text-muted fw-semibold">Not Assigned</div>
+                                @endif
+                            </div>
+                            <div class="col-6">
+                                <div class="text-muted small">Seat & Section</div>
                                 <div class="fw-bold fs-6 {{ $student->seat ? 'text-primary' : 'text-muted' }}">
                                     {{ $student->seat ? $student->seat->seat_number : 'Not Assigned' }}
                                 </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="text-muted small">Section</div>
-                                <div class="fw-semibold">
-                                    {{ $student->seat && $student->seat->section ? $student->seat->section : '—' }}
+                                <div class="text-muted" style="font-size: 0.75rem;">
+                                    {{ $student->seat && $student->seat->section ? $student->seat->section : 'No Section' }}
                                 </div>
                             </div>
                         </div>
@@ -192,7 +233,11 @@
                                 </tr>
                                 <tr>
                                     <th class="text-muted fw-normal">Mobile</th>
-                                    <td>{{ $student->mobile }}</td>
+                                    <td>
+                                        <a href="tel:{{ $student->mobile }}" class="text-decoration-none text-dark">
+                                            {{ $student->mobile }}
+                                        </a>
+                                    </td>
                                 </tr>
                                 <tr>
                                     <th class="text-muted fw-normal">Email</th>
@@ -300,7 +345,7 @@
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="6" class="text-center py-4 text-muted">
+                                            <td colspan="7" class="text-center py-4 text-muted">
                                                 No payments recorded yet.
                                             </td>
                                         </tr>
@@ -404,7 +449,7 @@
         </div>
     </div>
 
-    {{-- Assign / Change Seat Modal --}}
+    {{-- Change Shift & Seat Modal --}}
     <div class="modal fade" id="changeSeatModal" tabindex="-1" aria-labelledby="changeSeatModalLabel"
         aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -413,55 +458,98 @@
                     @csrf
                     <div class="modal-header">
                         <h5 class="modal-title fw-bold" id="changeSeatModalLabel">
-                            <i class="fa-solid fa-chair text-primary me-2"></i>
-                            {{ $student->seat ? 'Change Student Seat' : 'Assign Seat to Student' }}
+                            <i class="fa-solid fa-right-left text-primary me-2"></i>Change Shift & Seat
                         </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
 
                     <div class="modal-body">
-                        @if ($student->seat)
-                            <div class="alert alert-light border small mb-3">
-                                Current Seat: <strong>{{ $student->seat->seat_number }}</strong>
-                                @if ($student->seat->section)
+                        <div class="alert alert-light border small mb-3">
+                            <div>Current Shift: <strong>{{ $student->shift?->shift_name ?? 'Not Assigned' }}</strong></div>
+                            <div>
+                                Current Seat: <strong>{{ $student->seat?->seat_number ?? 'Not Assigned' }}</strong>
+                                @if ($student->seat?->section)
                                     ({{ $student->seat->section }})
                                 @endif
                             </div>
-                        @endif
+                        </div>
 
-                        <div class="mb-2">
+                        <div class="mb-3">
+                            <label for="modalShiftSelect" class="form-label small fw-semibold">
+                                Select Shift <span class="text-danger">*</span>
+                            </label>
+                            <select name="shift_id" id="modalShiftSelect" class="form-select" required>
+                                <option value="">-- Choose Shift --</option>
+                                @foreach ($shifts as $sh)
+                                    <option value="{{ $sh->id }}" data-fee="{{ $sh->monthly_fee }}"
+                                        data-duration="{{ $sh->duration_hours }}"
+                                        data-start="{{ $sh->start_time ? substr($sh->start_time, 0, 5) : '' }}"
+                                        data-end="{{ $sh->end_time ? substr($sh->end_time, 0, 5) : '' }}"
+                                        {{ $student->shift_id == $sh->id ? 'selected' : '' }}>
+                                        {{ $sh->shift_name }} ({{ $sh->duration_hours }}h -
+                                        ₹{{ (int) $sh->monthly_fee }})
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
                             <label for="seatSelectInput" class="form-label small fw-semibold">
-                                Select Available Seat
+                                Select Seat for Selected Shift
                             </label>
                             <select name="seat_id" id="seatSelectInput" class="form-select">
-                                <option value="">-- Release Seat (No Seat Assigned) --</option>
-                                @if ($student->seat)
-                                    <option value="{{ $student->seat->id }}" selected>
-                                        {{ $student->seat->seat_number }}
-                                        {{ $student->seat->section ? '(' . $student->seat->section . ')' : '' }} — Current
-                                    </option>
-                                @endif
-                                @foreach ($availableSeats as $seat)
-                                    <option value="{{ $seat->id }}">
-                                        {{ $seat->seat_number }} {{ $seat->section ? '(' . $seat->section . ')' : '' }}
+                                <option value="">-- No Seat / Release Seat --</option>
+                                @foreach ($allSeats as $seat)
+                                    @php
+                                        $others = $seat->activeStudents->where('id', '!=', $student->id);
+                                        $usedHrs = $others->sum(fn($s) => $s->shift->duration_hours ?? 0);
+                                        $bookedSlots = $others
+                                            ->map(
+                                                fn($st) => [
+                                                    'id' => $st->shift_id,
+                                                    'start' => $st->shift?->start_time
+                                                        ? substr($st->shift->start_time, 0, 5)
+                                                        : null,
+                                                    'end' => $st->shift?->end_time
+                                                        ? substr($st->shift->end_time, 0, 5)
+                                                        : null,
+                                                ],
+                                            )
+                                            ->values();
+                                        $isCurrent = $student->seat_id == $seat->id;
+                                        $baseLabel =
+                                            $seat->seat_number .
+                                            ($seat->section ? ' (' . $seat->section . ')' : '') .
+                                            ($isCurrent ? ' [Current]' : '') .
+                                            ($usedHrs > 0 ? " — {$usedHrs}/24h used" : ' — Empty');
+                                    @endphp
+                                    <option value="{{ $seat->id }}" data-base-label="{{ $baseLabel }}"
+                                        data-used-hours="{{ $usedHrs }}"
+                                        data-booked-slots='@json($bookedSlots)'
+                                        {{ $isCurrent ? 'selected' : '' }}>
+                                        {{ $baseLabel }}
                                     </option>
                                 @endforeach
                             </select>
                             <div class="form-text">
-                                @if ($availableSeats->isEmpty())
-                                    Abhi koi aur available seat khali nahi hai.
-                                @else
-                                    Total {{ $availableSeats->count() }} available
-                                    {{ Str::plural('seat', $availableSeats->count()) }} dikh rahi hain.
-                                @endif
+                                Seats occupied in the selected shift are automatically disabled.
                             </div>
+                        </div>
+
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="update_shift_fee" value="1"
+                                id="updateShiftFeeCheck">
+                            <label class="form-check-label small" for="updateShiftFeeCheck">
+                                Also update monthly fee to new shift's rate (<strong
+                                    id="modalNewShiftFeePreview">₹{{ number_format((float) ($student->shift?->monthly_fee ?? $student->total_fee), 0) }}</strong>)
+                            </label>
                         </div>
                     </div>
 
                     <div class="modal-footer">
                         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fa-solid fa-check me-1"></i> Update Seat
+                            <i class="fa-solid fa-check me-1"></i> Save Shift & Seat
                         </button>
                     </div>
                 </form>
@@ -474,7 +562,8 @@
         aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 shadow">
-                <form action="/library/students/update/{{ $student->id }}" method="POST">
+                <form action="/library/students/update/{{ $student->id }}" method="POST"
+                    enctype="multipart/form-data">
                     @csrf
                     <div class="modal-header">
                         <h5 class="modal-title fw-bold" id="editStudentModalLabel">
@@ -500,9 +589,18 @@
                             </div>
 
                             <div class="col-md-6">
-                                <label class="form-label small fw-semibold">Email</label>
-                                <input type="email" name="email" class="form-control"
-                                    value="{{ old('email', $student->email) }}" maxlength="100">
+                                <label class="form-label small fw-semibold">Shift <span
+                                        class="text-danger">*</span></label>
+                                <select name="shift_id" id="editShiftSelect" class="form-select" required>
+                                    <option value="">-- Choose Shift --</option>
+                                    @foreach ($shifts as $sh)
+                                        <option value="{{ $sh->id }}" data-fee="{{ $sh->monthly_fee }}"
+                                            {{ old('shift_id', $student->shift_id) == $sh->id ? 'selected' : '' }}>
+                                            {{ $sh->shift_name }} ({{ $sh->duration_hours }}h -
+                                            ₹{{ (int) $sh->monthly_fee }})
+                                        </option>
+                                    @endforeach
+                                </select>
                             </div>
 
                             <div class="col-md-6">
@@ -511,6 +609,18 @@
                                 <input type="date" name="admission_date" class="form-control"
                                     value="{{ old('admission_date', $student->admission_date ? $student->admission_date->format('Y-m-d') : '') }}"
                                     required>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold">Email</label>
+                                <input type="email" name="email" class="form-control"
+                                    value="{{ old('email', $student->email) }}" maxlength="100">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold">Update Photo (Optional)</label>
+                                <input type="file" name="photo" class="form-control"
+                                    accept="image/png,image/jpeg,image/webp">
                             </div>
 
                             <div class="col-md-6">
@@ -576,6 +686,7 @@
             const totalInput = document.getElementById('editTotalFee');
             const discountInput = document.getElementById('editDiscount');
             const payablePreview = document.getElementById('editPayablePreview');
+            const editShiftSelect = document.getElementById('editShiftSelect');
 
             function updatePayable() {
                 const total = parseFloat(totalInput.value) || 0;
@@ -587,6 +698,102 @@
             if (totalInput && discountInput) {
                 totalInput.addEventListener('input', updatePayable);
                 discountInput.addEventListener('input', updatePayable);
+            }
+
+            if (editShiftSelect && totalInput) {
+                editShiftSelect.addEventListener('change', function() {
+                    const fee = this.options[this.selectedIndex]?.dataset?.fee;
+                    if (fee !== undefined && fee !== '') {
+                        totalInput.value = fee;
+                        updatePayable();
+                    }
+                });
+            }
+
+            // Live Shift & Seat Filter inside Change Shift/Seat Modal
+            const modalShiftSelect = document.getElementById('modalShiftSelect');
+            const seatSelectInput = document.getElementById('seatSelectInput');
+            const modalFeePreview = document.getElementById('modalNewShiftFeePreview');
+
+            function toMinutes(t) {
+                if (!t) return null;
+                const [h, m] = t.split(':').map(Number);
+                return h * 60 + m;
+            }
+
+            function slotsOverlap(s1Start, s1End, s2Start, s2End) {
+                const a1 = toMinutes(s1Start),
+                    a2 = toMinutes(s1End);
+                const b1 = toMinutes(s2Start),
+                    b2 = toMinutes(s2End);
+                if (a1 === null || a2 === null || b1 === null || b2 === null) return false;
+
+                const segsA = a2 > a1 ? [
+                    [a1, a2]
+                ] : [
+                    [a1, 1440],
+                    [0, a2]
+                ];
+                const segsB = b2 > b1 ? [
+                    [b1, b2]
+                ] : [
+                    [b1, 1440],
+                    [0, b2]
+                ];
+
+                for (const [x1, x2] of segsA) {
+                    for (const [y1, y2] of segsB) {
+                        if (x1 < y2 && x2 > y1) return true;
+                    }
+                }
+                return false;
+            }
+
+            function filterModalSeats() {
+                if (!modalShiftSelect || !seatSelectInput) return;
+
+                const opt = modalShiftSelect.options[modalShiftSelect.selectedIndex];
+                const shiftId = opt && opt.value ? parseInt(opt.value, 10) : null;
+                const shiftDur = opt ? (parseInt(opt.dataset.duration, 10) || 0) : 0;
+                const shiftStart = opt ? (opt.dataset.start || null) : null;
+                const shiftEnd = opt ? (opt.dataset.end || null) : null;
+
+                if (modalFeePreview && opt && opt.dataset.fee !== undefined) {
+                    modalFeePreview.textContent = '₹' + Math.round(parseFloat(opt.dataset.fee) || 0);
+                }
+
+                Array.from(seatSelectInput.options).forEach(seatOpt => {
+                    if (!seatOpt.value) return;
+
+                    const baseLabel = seatOpt.dataset.baseLabel;
+                    const usedHours = parseInt(seatOpt.dataset.usedHours, 10) || 0;
+                    const bookedSlots = JSON.parse(seatOpt.dataset.bookedSlots || '[]');
+
+                    if (!shiftId) {
+                        seatOpt.disabled = false;
+                        seatOpt.textContent = baseLabel;
+                        return;
+                    }
+
+                    const sameShift = bookedSlots.some(s => s.id === shiftId);
+                    const overlap = bookedSlots.some(s => slotsOverlap(shiftStart, shiftEnd, s.start, s
+                        .end));
+                    const exceeds = (usedHours + shiftDur) > 24;
+
+                    if (sameShift || overlap || exceeds) {
+                        seatOpt.disabled = true;
+                        seatOpt.textContent = `${baseLabel} — Unavailable in this shift`;
+                        if (seatOpt.selected) seatSelectInput.value = '';
+                    } else {
+                        seatOpt.disabled = false;
+                        seatOpt.textContent = baseLabel;
+                    }
+                });
+            }
+
+            if (modalShiftSelect) {
+                modalShiftSelect.addEventListener('change', filterModalSeats);
+                filterModalSeats();
             }
 
             // Quick fill buttons inside Collect Fee Modal

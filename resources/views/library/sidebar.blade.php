@@ -6,6 +6,9 @@
         $navStudentCount = $navLibrary
             ? \App\Models\Student::where('library_id', $navLibrary->id)->where('status', 'active')->count()
             : 0;
+        $navShiftCount = $navLibrary
+            ? \App\Models\LibraryShift::where('library_id', $navLibrary->id)->where('status', true)->count()
+            : 0;
         $currentTab = request('tab', 'students');
     @endphp
     <div class="sidebar-shell">
@@ -41,6 +44,21 @@
                 <span>Dashboard</span>
             </a>
 
+            <div class="nav-title">Library Setup</div>
+            <a href="/library/shifts" class="side-link {{ request()->is('library/shifts*') ? 'active' : '' }}">
+                <i class="fa-solid fa-clock"></i>
+                <span>Shifts & Timings</span>
+                @if ($navShiftCount === 0)
+                    <span class="nav-badge bg-warning text-dark">Setup</span>
+                @else
+                    <span class="nav-badge">{{ $navShiftCount }}</span>
+                @endif
+            </a>
+            <a href="/library/seats" class="side-link {{ request()->is('library/seats*') ? 'active' : '' }}">
+                <i class="fa-solid fa-chair"></i>
+                <span>Seats</span>
+            </a>
+
             <div class="nav-title">Library Management</div>
             <a href="/library/students" class="side-link {{ request()->is('library/students*') ? 'active' : '' }}">
                 <i class="fa-solid fa-users"></i>
@@ -51,19 +69,17 @@
                 <i class="fa-solid fa-calendar-check"></i>
                 <span>Attendance</span>
             </a>
-            <a href="/library/seats" class="side-link {{ request()->is('library/seats*') ? 'active' : '' }}">
-                <i class="fa-solid fa-chair"></i>
-                <span>Seats</span>
-            </a>
-            <a href="/library/reports?tab=students"
-                class="side-link {{ request()->is('library/reports*') && $currentTab === 'students' ? 'active' : '' }}">
-                <i class="fa-solid fa-file-lines"></i>
-                <span>Student Report</span>
-            </a>
             <a href="/library/fees"
                 class="side-link {{ request()->is('library/fees*') || request()->is('library/payments*') ? 'active' : '' }}">
                 <i class="fa-solid fa-wallet"></i>
                 <span>Fees & Payments</span>
+            </a>
+
+            <div class="nav-title">Reports</div>
+            <a href="/library/reports?tab=students"
+                class="side-link {{ request()->is('library/reports*') && $currentTab === 'students' ? 'active' : '' }}">
+                <i class="fa-solid fa-file-lines"></i>
+                <span>Student Report</span>
             </a>
             <a href="/library/reports?tab=payments"
                 class="side-link {{ request()->is('library/reports*') && $currentTab === 'payments' ? 'active' : '' }}">

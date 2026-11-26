@@ -10,6 +10,7 @@ class Library extends Model
 {
     protected $fillable = [
         'library_code',
+        'admission_token',
         'library_type',
         'library_name',
         'address',
@@ -35,7 +36,10 @@ class Library extends Model
     {
         return $this->hasMany(Subscription::class);
     }
-
+    public function shifts()
+    {
+        return $this->hasMany(LibraryShift::class);
+    }
     // Current active subscription
     public function activeSubscription(): HasOne
     {

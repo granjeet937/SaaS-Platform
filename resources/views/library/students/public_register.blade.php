@@ -63,7 +63,8 @@
                     </div>
                 @endif
 
-                <form method="POST" action="{{ route('public.admission.store', $token) }}">
+                <form method="POST" action="{{ route('public.admission.store', $token) }}"
+                    enctype="multipart/form-data">
                     @csrf
 
                     <div class="row g-3">
@@ -106,7 +107,11 @@
                                 value="{{ old('guardian_mobile') }}" placeholder="Emergency contact" maxlength="20"
                                 inputmode="tel">
                         </div>
-
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label">Student Photo</label>
+                            <input type="file" name="photo" class="form-control"
+                                accept="image/png,image/jpeg,image/webp">
+                        </div>
                         <div class="col-12">
                             <label class="form-label small fw-semibold mb-1">Full Address</label>
                             <textarea name="address" class="form-control" rows="2" placeholder="House/Street, Village/City">{{ old('address') }}</textarea>
