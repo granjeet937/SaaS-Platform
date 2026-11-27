@@ -10,6 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Mail\LibraryNotificationMail;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class StudentController extends Controller
 {
@@ -295,6 +298,22 @@ class StudentController extends Controller
                         'reference_number' => $validated['reference_number'] ?? null,
                     ]);
                 }
+                $this->sendStudentMail($library, $validated['email'] ?? null, [
+                    'subject'        => "Admission Confirmed — {$library->library_name}",
+                    'recipient_name' => $validated['name'],
+                    'badge_text'     => 'ADMISSION CONFIRMED',
+                    'badge_color'    => '#16a34a',
+                    'intro_message'  => "Welcome to {$library->library_name}! Your library admission has been completed.",
+                    'details'        => [
+                        'Student Code'   => $studentCode,
+                        'Shift'          => $shift->shift_name,
+                        'Seat'           => $seat?->seat_number ?? 'Not Assigned',
+                        'Monthly Fee'    => '₹' . number_format($payableFee, 2),
+                        'Paid Today'     => '₹' . number_format($initialPayment, 2),
+                        'Admission Date' => $validated['admission_date'],
+                    ],
+                    'footer_note'    => 'Please keep your Student Code handy for daily attendance check-in.',
+                ]);
             });
         } catch (\Throwable $e) {
             if ($photoPath && file_exists(base_path($photoPath))) {
@@ -498,7 +517,23 @@ class StudentController extends Controller
                 $message = 'Student activated successfully.';
             }
         });
-
+        $toggledStudent = Student::find($id);
+        if ($toggledStudent) {
+            $isActive = $toggledStudent->status === 'active';
+            $this->sendStudentMail($library, $toggledStudent->email, [
+                'subject'        => ($isActive ? 'Membership Activated' : 'Membership Deactivated') . " — {$library->library_name}",
+                'recipient_name' => $toggledStudent->name,
+                'badge_text'     => $isActive ? 'ACTIVE' : 'INACTIVE',
+                'badge_color'    => $isActive ? '#16a34a' : '#dc2626',
+                'intro_message'  => $isActive
+                    ? "Your membership at {$library->library_name} has been reactivated."
+                    : "Your membership at {$library->library_name} has been marked inactive and your seat has been released.",
+                'details'        => [
+                    'Student Code' => $toggledStudent->student_code,
+                    'Status'       => ucfirst($toggledStudent->status),
+                ],
+            ]);
+        }
         return redirect('/library/students/view/' . $id)
             ->with('success', $message);
     }
@@ -555,7 +590,20 @@ class StudentController extends Controller
             'reference_number' => $validated['reference_number'] ?? null,
             'notes'            => $validated['notes'] ?? null,
         ]);
-
+        $this->sendStudentMail($library, $student->email, [
+            'subject'        => "Fee Payment Receipt — ₹" . number_format((float) $validated['amount'], 2),
+            'recipient_name' => $student->name,
+            'badge_text'     => 'PAYMENT RECEIVED',
+            'badge_color'    => '#16a34a',
+            'intro_message'  => 'Thank you! We have received your monthly fee payment.',
+            'details'        => [
+                'Student Code'   => $student->student_code,
+                'Amount Paid'    => '₹' . number_format((float) $validated['amount'], 2),
+                'Payment Mode'   => strtoupper(str_replace('_', ' ', $validated['payment_method'])),
+                'Payment Date'   => $validated['payment_date'],
+                'Reference No.'  => $validated['reference_number'] ?? '—',
+            ],
+        ]);
         return redirect()->back()
             ->with('success', 'Fee payment of ₹' . number_format((float) $validated['amount'], 2) . ' recorded successfully.');
     }
@@ -859,7 +907,20 @@ class StudentController extends Controller
             'payable_fee'     => 0,
             'status'          => 'pending',
         ]);
-
+        $this->sendStudentMail($library, $validated['email'] ?? null, [
+            'subject'        => "Registration Received — {$library->library_name}",
+            'recipient_name' => trim($validated['name']),
+            'badge_text'     => 'REGISTRATION SUBMITTED',
+            'badge_color'    => '#d97706',
+            'intro_message'  => "Your online registration for {$library->library_name} has been received and is pending admin approval.",
+            'details'        => [
+                'Application Code' => $studentCode,
+                'Mobile'           => trim($validated['mobile']),
+                'Joining Date'     => $validated['admission_date'],
+                'Status'           => 'Pending Approval',
+            ],
+            'footer_note'    => 'Please visit the library desk to complete seat allocation and activation.',
+        ]);
         return back()->with('submitted', true);
     }
 
@@ -955,8 +1016,47 @@ class StudentController extends Controller
                     'reference_number' => $validated['reference_number'] ?? null,
                 ]);
             }
+            $approvedStudent = Student::with(['shift', 'seat'])->find($id);
+            if ($approvedStudent) {
+                $this->sendStudentMail($library, $approvedStudent->email, [
+                    'subject'        => "Account Activated — {$library->library_name}",
+                    'recipient_name' => $approvedStudent->name,
+                    'badge_text'     => 'ACCOUNT ACTIVE',
+                    'badge_color'    => '#16a34a',
+                    'intro_message'  => "Your registration has been approved and your seat is now active at {$library->library_name}.",
+                    'details'        => [
+                        'Student Code'   => $approvedStudent->student_code,
+                        'Assigned Shift' => $approvedStudent->shift?->shift_name ?? '—',
+                        'Assigned Seat'  => $approvedStudent->seat?->seat_number ?? 'Not Assigned',
+                        'Monthly Fee'    => '₹' . number_format($payableFee, 2),
+                        'Initial Paid'   => '₹' . number_format($initialPayment, 2),
+                    ],
+                ]);
+            }
         });
 
         return redirect('/library/students')->with('success', 'Student approved, shift, seat & fee assigned successfully!');
+    }
+    private function sendStudentMail($library, ?string $studentEmail, array $payload): void
+    {
+        $adminEmail = $library->email ?? auth()->user()?->email;
+        $ccEmails = array_filter([
+            $adminEmail,
+            auth()->user()?->email,
+        ]);
+        $toEmail = !empty($studentEmail) ? $studentEmail : ($adminEmail ?? config('mail.cc_address'));
+
+        if (empty($toEmail)) {
+            return;
+        }
+
+        $payload['cc'] = array_values(array_diff(array_unique($ccEmails), [$toEmail]));
+        $payload['library_name'] = $library->library_name;
+
+        try {
+            Mail::to($toEmail)->send(new LibraryNotificationMail($payload));
+        } catch (\Throwable $e) {
+            Log::warning('Library mail failed: ' . $e->getMessage());
+        }
     }
 }

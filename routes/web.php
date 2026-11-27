@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AdminController;
 use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\StudentController;
 use App\Models\Plan;
@@ -29,7 +30,16 @@ Route::get('/library-registration', function () {
 // Public Student Self-Registration (Token Protected)
 Route::get('/admission/{token}', [StudentController::class, 'publicRegisterForm'])->name('public.admission.form');
 Route::post('/admission/{token}', [StudentController::class, 'publicRegisterStore'])->middleware('throttle:10,1')->name('public.admission.store');
-
+Route::get('/rgsmadmin', [AdminController::class, 'showLogin'])->name('rgsmadmin.login');
+Route::post('/rgsmadmin', [AdminController::class, 'login']);
+Route::get('/rgsmadmin/register', [AdminController::class, 'showRegister'])->name('rgsmadmin.register');
+Route::post('/rgsmadmin/register', [AdminController::class, 'register']);
+Route::middleware('auth')->prefix('rgsmadmin')->group(function () {
+    Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('rgsmadmin.dashboard');
+    Route::post('/libraries/{id}/approve', [AdminController::class, 'approveLibrary']);
+    Route::post('/libraries/{id}/suspend', [AdminController::class, 'suspendLibrary']);
+    Route::post('/logout', [AdminController::class, 'logout'])->name('rgsmadmin.logout');
+});
 Route::middleware(['auth', EnsureKioskUnlocked::class])->group(function () {
     Route::get('/library-dashboard', [LibraryController::class, 'dashboard']);
 

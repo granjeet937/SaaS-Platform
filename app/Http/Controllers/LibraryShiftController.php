@@ -92,7 +92,6 @@ class LibraryShiftController extends Controller
         $existingShifts = LibraryShift::where('library_id', $library->id)->get();
         $activePreset = $this->detectActivePreset($existingShifts);
 
-        // Agar pehle se koi preset active hai to naya preset block karein
         if ($activePreset !== null) {
             return redirect()->route('shifts.index')
                 ->with('error', 'A shift preset is already active. Delete existing preset shifts first if you want to switch templates, or use "+ Add Custom Shift".');

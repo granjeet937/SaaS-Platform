@@ -13,6 +13,7 @@ class Library extends Model
         'admission_token',
         'library_type',
         'library_name',
+        'logo',
         'address',
         'city',
         'state',
@@ -31,16 +32,26 @@ class Library extends Model
         return $this->hasMany(User::class);
     }
 
-    // All subscriptions of this library
+    public function students(): HasMany
+    {
+        return $this->hasMany(Student::class);
+    }
+
+    public function seats(): HasMany
+    {
+        return $this->hasMany(Seat::class);
+    }
+
+    public function shifts(): HasMany
+    {
+        return $this->hasMany(LibraryShift::class);
+    }
+
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);
     }
-    public function shifts()
-    {
-        return $this->hasMany(LibraryShift::class);
-    }
-    // Current active subscription
+
     public function activeSubscription(): HasOne
     {
         return $this->hasOne(Subscription::class)

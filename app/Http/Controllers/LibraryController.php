@@ -18,6 +18,8 @@ use App\Models\Student;
 use App\Models\StudentPayment;
 use Carbon\Carbon;
 use App\Models\StudentAttendance;
+use App\Mail\LibraryNotificationMail;
+use Illuminate\Support\Facades\Mail;
 
 class LibraryController extends Controller
 {
@@ -52,12 +54,13 @@ class LibraryController extends Controller
         ]);
 
         try {
-            $library = DB::transaction(function () use ($request, $validated) {
+            [$library, $user, $freePlan] = DB::transaction(function () use ($request, $validated) {
                 $logoPath = null;
                 if ($request->hasFile('logo')) {
                     $logoPath = $request->file('logo')->store('libraries/logos', 'public');
                     Log::info('Library logo uploaded successfully.', ['path' => $logoPath]);
                 }
+
                 $cleanName = preg_replace('/[^a-zA-Z\s]/', '', trim($validated['library_name']));
                 $words = array_values(array_filter(explode(' ', $cleanName)));
 
@@ -67,24 +70,27 @@ class LibraryController extends Controller
                     $joined = str_replace(' ', '', $cleanName);
                     $prefix = strtoupper(str_pad(substr($joined, 0, 3), 3, 'X'));
                 }
+
                 $sequence = Library::count() + 1;
 
                 do {
                     $libraryCode = 'LIB-' . $prefix . str_pad($sequence, 3, '0', STR_PAD_LEFT);
                     $sequence++;
                 } while (Library::where('library_code', $libraryCode)->exists());
+
                 $library = Library::create([
-                    'library_code' => $libraryCode,
-                    'library_type' => $validated['library_type'],
-                    'library_name' => $validated['library_name'],
-                    'logo'         => $logoPath,
-                    'address'      => $validated['address'],
-                    'city'         => $validated['city'],
-                    'state'        => $validated['state'],
-                    'pincode'      => $validated['pincode'],
-                    'total_seats'  => $validated['total_seats'],
-                    'facilities'   => $validated['facilities'] ?? [],
-                    'status'       => 'pending',
+                    'library_code'    => $libraryCode,
+                    'library_type'    => $validated['library_type'],
+                    'library_name'    => $validated['library_name'],
+                    'admission_token' => strtoupper(Str::random(16)),
+                    'logo'            => $logoPath,
+                    'address'         => $validated['address'],
+                    'city'            => $validated['city'],
+                    'state'           => $validated['state'],
+                    'pincode'         => $validated['pincode'],
+                    'total_seats'     => $validated['total_seats'],
+                    'facilities'      => $validated['facilities'] ?? [],
+                    'status'          => 'pending',
                 ]);
 
                 $user = User::create([
@@ -115,8 +121,32 @@ class LibraryController extends Controller
                     'payment_status' => 'not_required',
                 ]);
 
-                return $library;
+                return [$library, $user, $freePlan];
             });
+
+            try {
+                Mail::to($user->email)->send(new LibraryNotificationMail([
+                    'subject'        => "Library Registration Received — {$library->library_name} ({$library->library_code})",
+                    'library_name'   => 'LMSP — Library Management SaaS Platform',
+                    'recipient_name' => $user->name,
+                    'badge_text'     => 'PENDING APPROVAL',
+                    'badge_color'    => '#d97706',
+                    'intro_message'  => "Thank you for registering {$library->library_name} on LMSP. Your library account is currently pending verification by the LMSP team.",
+                    'details'        => [
+                        'Library Code'   => $library->library_code,
+                        'Library Name'   => $library->library_name,
+                        'Owner Email'    => $user->email,
+                        'Owner Mobile'   => $user->phone,
+                        'City / State'   => "{$library->city}, {$library->state}",
+                        'Total Seats'    => (string) $library->total_seats,
+                        'Trial Plan'     => "{$freePlan->name} ({$freePlan->duration_days} Days)",
+                        'Account Status' => 'Pending SaaS Admin Approval',
+                    ],
+                    'footer_note'    => 'You will receive an activation email as soon as your library is approved.',
+                ]));
+            } catch (\Throwable $mailEx) {
+                Log::warning('Library registration mail failed: ' . $mailEx->getMessage());
+            }
 
             return redirect('/library-login')->with([
                 'success'      => 'Library registered successfully. Please login to continue.',
@@ -233,24 +263,30 @@ class LibraryController extends Controller
         }
 
         $stats = [
-            'totalStudents' => 0,
-            'activeStudents' => 0,
-            'newThisMonth' => 0,
-            'presentToday' => 0,
+            'totalStudents'         => 0,
+            'activeStudents'        => 0,
+            'pendingStudents'       => 0,
+            'newThisMonth'          => 0,
+            'presentToday'          => 0,
+            'insideNow'             => 0,
             'attendanceRatePercent' => 0,
-            'weeklyCheckInsTotal' => 0,
-            'totalSeats' => 0,
-            'occupiedSeats' => 0,
-            'availableSeats' => 0,
-            'maintenanceSeats' => 0,
-            'seatOccupancyPercent' => 0,
-            'thisMonthRevenue' => 0,
-            'totalPendingDues' => 0,
-            'expiringSoonCount' => 0,
+            'weeklyCheckInsTotal'   => 0,
+            'totalSeats'            => 0,
+            'occupiedSeats'         => 0,
+            'partialSeats'          => 0,
+            'availableSeats'        => 0,
+            'maintenanceSeats'      => 0,
+            'seatOccupancyPercent'  => 0,
+            'totalBookedHours'      => 0,
+            'totalCapacityHours'    => 0,
+            'thisMonthRevenue'      => 0,
+            'totalPendingDues'      => 0,
+            'expiringSoonCount'     => 0,
             'collectionRatePercent' => 0,
         ];
 
         $seats = collect();
+        $shiftSummary = collect();
         $recentStudents = collect();
         $recentActivities = collect();
         $weeklyAttendance = collect();
@@ -260,12 +296,17 @@ class LibraryController extends Controller
             $sevenDaysLater = $today->copy()->addDays(7);
 
             $allStudents = Student::where('library_id', $library->id)
-                ->with(['seat', 'payments' => fn($q) => $q->where('payment_status', 'paid')])
+                ->with([
+                    'seat',
+                    'shift',
+                    'payments' => fn($q) => $q->where('payment_status', 'paid'),
+                ])
                 ->orderByDesc('id')
                 ->get();
 
             $stats['totalStudents'] = $allStudents->count();
             $stats['activeStudents'] = $allStudents->where('status', 'active')->count();
+            $stats['pendingStudents'] = $allStudents->where('status', 'pending')->count();
             $stats['newThisMonth'] = $allStudents->filter(function ($st) {
                 return $st->admission_date && $st->admission_date->isCurrentMonth() && $st->admission_date->isCurrentYear();
             })->count();
@@ -276,6 +317,12 @@ class LibraryController extends Controller
             $expiringSoonCount = 0;
 
             foreach ($allStudents as $st) {
+                if ($st->status === 'pending') {
+                    $st->computed_balance = 0;
+                    $st->computed_next_due = null;
+                    continue;
+                }
+
                 $admissionDate = $st->admission_date ? $st->admission_date->copy()->startOfDay() : $today->copy();
                 $daysElapsed = max(0, (int) $admissionDate->diffInDays($today, false));
                 $totalMonths = (int) floor($daysElapsed / 30) + 1;
@@ -304,10 +351,14 @@ class LibraryController extends Controller
                 : 100;
 
             // 2. Live Attendance Stats (Today + Last 7 Days)
-            $stats['presentToday'] = StudentAttendance::where('library_id', $library->id)
+            $todayAttendances = StudentAttendance::where('library_id', $library->id)
                 ->whereDate('attendance_date', $today->toDateString())
                 ->where('status', 'present')
-                ->count();
+                ->get();
+
+            $stats['presentToday'] = $todayAttendances->count();
+            $stats['insideNow'] = $todayAttendances->whereNull('check_out_time')->count();
+            $insideStudentIds = $todayAttendances->whereNull('check_out_time')->pluck('student_id')->flip();
 
             $stats['attendanceRatePercent'] = $stats['activeStudents'] > 0
                 ? min(100, (int) round(($stats['presentToday'] / $stats['activeStudents']) * 100))
@@ -332,45 +383,97 @@ class LibraryController extends Controller
                 $stats['weeklyCheckInsTotal'] += $checkInCount;
 
                 $weeklyAttendance->push((object) [
-                    'label' => $day->format('D'),
-                    'check_in' => $checkInCount,
-                    'check_out' => $checkOutCount,
-                    'in_height' => $checkInCount > 0 ? max(12, min(100, (int) round(($checkInCount / $maxDaily) * 100))) : 6,
+                    'label'      => $day->format('D'),
+                    'check_in'   => $checkInCount,
+                    'check_out'  => $checkOutCount,
+                    'in_height'  => $checkInCount > 0 ? max(12, min(100, (int) round(($checkInCount / $maxDaily) * 100))) : 6,
                     'out_height' => $checkOutCount > 0 ? max(10, min(100, (int) round(($checkOutCount / $maxDaily) * 100))) : 4,
                 ]);
             }
 
-            // 3. Seats Stats & First 20 Seats
+            // 3. Shift-Aware Seats Stats & First 20 Seats
             $allSeats = Seat::where('library_id', $library->id)
-                ->orderBy('seat_number')
-                ->get();
+                ->with('activeStudents')
+                ->orderBy('id')
+                ->get()
+                ->map(function ($seat) {
+                    $usedHours = $seat->activeStudents->sum(fn($s) => $s->shift->duration_hours ?? 0);
+                    $seat->used_hours = $usedHours;
+
+                    if ($seat->status === 'maintenance') {
+                        $seat->computed_status = 'maintenance';
+                    } elseif ($usedHours >= 24 || $seat->status === 'occupied') {
+                        $seat->computed_status = 'occupied';
+                    } elseif ($usedHours > 0) {
+                        $seat->computed_status = 'partial';
+                    } else {
+                        $seat->computed_status = 'available';
+                    }
+
+                    return $seat;
+                });
 
             $stats['totalSeats'] = $allSeats->count();
-            $stats['occupiedSeats'] = $allSeats->where('status', 'occupied')->count();
-            $stats['availableSeats'] = $allSeats->where('status', 'available')->count();
-            $stats['maintenanceSeats'] = $allSeats->where('status', 'maintenance')->count();
-            $stats['seatOccupancyPercent'] = $stats['totalSeats'] > 0
-                ? (int) round(($stats['occupiedSeats'] / $stats['totalSeats']) * 100)
+            $stats['occupiedSeats'] = $allSeats->where('computed_status', 'occupied')->count();
+            $stats['partialSeats'] = $allSeats->where('computed_status', 'partial')->count();
+            $stats['availableSeats'] = $allSeats->where('computed_status', 'available')->count();
+            $stats['maintenanceSeats'] = $allSeats->where('computed_status', 'maintenance')->count();
+
+            $activeUsableSeats = max(1, $stats['totalSeats'] - $stats['maintenanceSeats']);
+            $totalCapacityHours = $activeUsableSeats * 24;
+            $totalBookedHours = $allSeats->where('computed_status', '!=', 'maintenance')->sum('used_hours');
+
+            $stats['totalCapacityHours'] = $totalCapacityHours;
+            $stats['totalBookedHours'] = $totalBookedHours;
+            $stats['seatOccupancyPercent'] = ($stats['totalSeats'] - $stats['maintenanceSeats']) > 0
+                ? min(100, (int) round(($totalBookedHours / $totalCapacityHours) * 100))
                 : 0;
 
             $seats = $allSeats->take(20);
 
-            // 4. Revenue This Month
+            // 4. Shift-Wise Breakdown
+            $shifts = \App\Models\LibraryShift::where('library_id', $library->id)
+                ->where('status', true)
+                ->orderBy('start_time')
+                ->orderBy('duration_hours')
+                ->get();
+
+            $activeStudentsList = $allStudents->where('status', 'active');
+            $shiftSummary = $shifts->map(function ($sh) use ($activeStudentsList, $insideStudentIds) {
+                $enrolled = $activeStudentsList->where('shift_id', $sh->id);
+                $inside = $enrolled->filter(fn($s) => isset($insideStudentIds[$s->id]))->count();
+
+                return (object) [
+                    'id'       => $sh->id,
+                    'name'     => $sh->shift_name,
+                    'duration' => $sh->duration_hours,
+                    'timing'   => ($sh->start_time && $sh->end_time)
+                        ? \Carbon\Carbon::parse($sh->start_time)->format('h:i A') . ' - ' . \Carbon\Carbon::parse($sh->end_time)->format('h:i A')
+                        : 'Flexible',
+                    'fee'      => $sh->monthly_fee,
+                    'enrolled' => $enrolled->count(),
+                    'inside'   => $inside,
+                ];
+            });
+
+            // 5. Revenue This Month
             $stats['thisMonthRevenue'] = (float) StudentPayment::where('library_id', $library->id)
                 ->where('payment_status', 'paid')
                 ->whereMonth('payment_date', now()->month)
                 ->whereYear('payment_date', now()->year)
                 ->sum('amount');
 
-            // 5. Recent Students & Activity
+            // 6. Recent Students & Activity
             $recentStudents = $allStudents->take(5);
 
             $admissionEvents = $allStudents->take(4)->map(function ($st) {
                 return (object) [
-                    'type' => 'admission',
+                    'type'      => 'admission',
                     'timestamp' => $st->created_at ?? now(),
-                    'title' => $st->name,
-                    'detail' => 'was added as a new student.',
+                    'title'     => $st->name,
+                    'detail'    => $st->status === 'pending'
+                        ? 'submitted an online registration.'
+                        : 'was added' . ($st->shift ? " ({$st->shift->shift_name})." : ' as a new student.'),
                 ];
             });
 
@@ -382,10 +485,10 @@ class LibraryController extends Controller
                 ->get()
                 ->map(function ($pay) {
                     return (object) [
-                        'type' => 'payment',
+                        'type'      => 'payment',
                         'timestamp' => $pay->created_at ?? now(),
-                        'title' => '₹' . number_format((float) $pay->amount, 0),
-                        'detail' => 'received from ' . ($pay->student->name ?? 'Student') . '.',
+                        'title'     => '₹' . number_format((float) $pay->amount, 0),
+                        'detail'    => 'received from ' . ($pay->student->name ?? 'Student') . '.',
                     ];
                 });
 
@@ -402,6 +505,7 @@ class LibraryController extends Controller
             'subscription',
             'stats',
             'seats',
+            'shiftSummary',
             'recentStudents',
             'recentActivities',
             'weeklyAttendance'

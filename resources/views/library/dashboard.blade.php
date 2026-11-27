@@ -20,7 +20,12 @@
                 <p class="mb-0 small">Here’s what’s happening in your study library today.</p>
             </div>
 
-            <div class="col-md-4 text-md-end">
+            <div class="col-md-4 text-md-end d-flex flex-wrap justify-content-md-end align-items-center gap-2">
+                @if ($stats['pendingStudents'] > 0)
+                    <a href="/library/students" class="btn btn-warning btn-sm fw-semibold rounded-pill px-3">
+                        <i class="fa-solid fa-hourglass-half me-1"></i> {{ $stats['pendingStudents'] }} Pending Approval
+                    </a>
+                @endif
                 <span class="date-pill">
                     <i class="fa-regular fa-calendar"></i>
                     {{ now()->format('l, d F Y') }}
@@ -76,7 +81,7 @@
                 <div class="kpi-card">
                     <div class="kpi-top">
                         <div class="kpi-icon green"><i class="fa-solid fa-user-check"></i></div>
-                        <span class="trend up">{{ $stats['attendanceRatePercent'] }}%</span>
+                        <span class="trend up">{{ $stats['insideNow'] }} inside</span>
                     </div>
                     <div class="kpi-label">Present Today</div>
                     <div class="kpi-value">{{ $stats['presentToday'] }}</div>
@@ -88,11 +93,13 @@
                 <div class="kpi-card">
                     <div class="kpi-top">
                         <div class="kpi-icon purple"><i class="fa-solid fa-chair"></i></div>
-                        <span class="trend up">{{ $stats['seatOccupancyPercent'] }}%</span>
+                        <span class="trend up">{{ $stats['seatOccupancyPercent'] }}% hrs</span>
                     </div>
-                    <div class="kpi-label">Seats Occupied</div>
-                    <div class="kpi-value">{{ $stats['occupiedSeats'] }}/{{ $stats['totalSeats'] }}</div>
-                    <div class="kpi-meta">{{ $stats['availableSeats'] }} seats available</div>
+                    <div class="kpi-label">Seat Utilization</div>
+                    <div class="kpi-value">
+                        {{ $stats['occupiedSeats'] + $stats['partialSeats'] }}/{{ $stats['totalSeats'] }}</div>
+                    <div class="kpi-meta">{{ $stats['availableSeats'] }} empty &bull; {{ $stats['partialSeats'] }} partial
+                    </div>
                 </div>
             </div>
 
@@ -122,6 +129,38 @@
             </div>
         </div>
     </section>
+
+    <!-- SHIFT-WISE OVERVIEW STRIP -->
+    @if ($shiftSummary->isNotEmpty())
+        <section class="mb-3">
+            <div class="panel">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">Active Shifts Breakdown</div>
+                        <div class="panel-sub">Enrolled students and live presence per shift</div>
+                    </div>
+                    <a href="/library/shifts" class="panel-action">Manage Shifts</a>
+                </div>
+                <div class="row g-2">
+                    @foreach ($shiftSummary as $sh)
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded-3 p-2 px-3 bg-light h-100">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="fw-bold small text-dark text-truncate">{{ $sh->name }}</span>
+                                    <span class="badge bg-primary-subtle text-primary">{{ $sh->duration }}h</span>
+                                </div>
+                                <div class="text-muted" style="font-size: 0.72rem;">{{ $sh->timing }}</div>
+                                <div class="d-flex justify-content-between align-items-center mt-2 pt-1 border-top small">
+                                    <span><strong>{{ $sh->enrolled }}</strong> Enrolled</span>
+                                    <span class="text-success fw-semibold">{{ $sh->inside }} Inside</span>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        </section>
+    @endif
 
     <!-- CHART + SEAT MAP -->
     <section class="mb-3">
@@ -174,7 +213,7 @@
                     <div class="panel-head">
                         <div>
                             <div class="panel-title">Live Seat Occupancy</div>
-                            <div class="panel-sub">Showing first {{ $seats->count() }} seats</div>
+                            <div class="panel-sub">Showing first {{ $seats->count() }} seats (shift-wise)</div>
                         </div>
                         <a href="/library/seats" class="panel-action">Manage</a>
                     </div>
@@ -182,30 +221,46 @@
                     <div class="seat-map">
                         <div class="seat-summary">
                             <div class="seat-stat">
-                                <small>Occupied</small>
+                                <small>Full (24h)</small>
                                 <strong>{{ $stats['occupiedSeats'] }}</strong>
                             </div>
                             <div class="seat-stat">
-                                <small>Available</small>
-                                <strong>{{ $stats['availableSeats'] }}</strong>
+                                <small>Partial</small>
+                                <strong>{{ $stats['partialSeats'] }}</strong>
                             </div>
                             <div class="seat-stat">
-                                <small>Maintenance</small>
-                                <strong>{{ $stats['maintenanceSeats'] }}</strong>
+                                <small>Empty</small>
+                                <strong>{{ $stats['availableSeats'] }}</strong>
                             </div>
                         </div>
 
                         <div class="seat-grid">
                             @forelse ($seats as $seat)
                                 @php
-                                    $shortLabel = preg_replace('/^LAB\d+-/', '', $seat->seat_number);
-                                    $seatClass = $seat->status === 'maintenance' ? 'reserved' : $seat->status;
+                                    $shortLabel = preg_replace('/^LIB\d+-/', '', $seat->seat_number);
+                                    $seatClass = match ($seat->computed_status) {
+                                        'maintenance' => 'reserved',
+                                        'occupied' => 'occupied',
+                                        'partial' => 'occupied',
+                                        default => 'available',
+                                    };
+                                    $seatStyle =
+                                        $seat->computed_status === 'partial'
+                                            ? 'background:#e0f2fe;color:#0369a1;border-color:#7dd3fc;'
+                                            : '';
+                                    $occupants = $seat->activeStudents
+                                        ->map(fn($s) => $s->name . ' (' . ($s->shift->shift_name ?? '') . ')')
+                                        ->implode(', ');
+                                    $seatTitle =
+                                        $seat->seat_number . ' — ' . ($occupants ?: ucfirst($seat->computed_status));
                                 @endphp
-                                <div class="seat {{ $seatClass }}"
-                                    title="{{ $seat->seat_number }} ({{ ucfirst($seat->status) }})">
-                                    @if ($seat->status === 'occupied')
+                                <div class="seat {{ $seatClass }}" style="{{ $seatStyle }}"
+                                    title="{{ $seatTitle }}">
+                                    @if ($seat->computed_status === 'occupied')
                                         <i class="fa-solid fa-user"></i>
-                                    @elseif ($seat->status === 'maintenance')
+                                    @elseif ($seat->computed_status === 'partial')
+                                        <i class="fa-solid fa-clock"></i>
+                                    @elseif ($seat->computed_status === 'maintenance')
                                         <i class="fa-solid fa-wrench"></i>
                                     @else
                                         <i class="fa-solid fa-check"></i>
@@ -220,9 +275,10 @@
                         </div>
 
                         <div class="seat-legend">
-                            <span><span class="legend-dot" style="background:#2fcf96"></span>Available</span>
-                            <span><span class="legend-dot" style="background:#27abff"></span>Occupied</span>
-                            <span><span class="legend-dot" style="background:#967aff"></span>Maintenance</span>
+                            <span><span class="legend-dot" style="background:#2fcf96"></span>Empty</span>
+                            <span><span class="legend-dot" style="background:#7dd3fc"></span>Partial</span>
+                            <span><span class="legend-dot" style="background:#27abff"></span>Full</span>
+                            <span><span class="legend-dot" style="background:#967aff"></span>Maint.</span>
                         </div>
                     </div>
                 </div>
@@ -238,7 +294,7 @@
                     <div class="panel-head">
                         <div>
                             <div class="panel-title">Recent Students</div>
-                            <div class="panel-sub">Latest admissions and 30-day cycle fee status</div>
+                            <div class="panel-sub">Latest admissions, shifts, and 30-day cycle fee status</div>
                         </div>
                         <a href="/library/students" class="panel-action">View All</a>
                     </div>
@@ -248,9 +304,9 @@
                             <thead>
                                 <tr>
                                     <th>Student</th>
-                                    <th>Monthly</th>
+                                    <th>Shift</th>
                                     <th>Seat</th>
-                                    <th>Next Due</th>
+                                    <th>Monthly</th>
                                     <th>Status</th>
                                     <th>Joined</th>
                                 </tr>
@@ -269,7 +325,14 @@
                                             <a href="/library/students/view/{{ $st->id }}"
                                                 class="text-decoration-none text-dark">
                                                 <div class="student">
-                                                    <div class="student-avatar">{{ $initials ?: 'ST' }}</div>
+                                                    @if ($st->photo)
+                                                        <img src="{{ route('students.photo', $st->id) }}"
+                                                            alt="{{ $st->name }}"
+                                                            class="rounded-circle object-fit-cover border flex-shrink-0"
+                                                            style="width: 34px; height: 34px;">
+                                                    @else
+                                                        <div class="student-avatar">{{ $initials ?: 'ST' }}</div>
+                                                    @endif
                                                     <div>
                                                         <div class="student-name">{{ $st->name }}</div>
                                                         <div class="student-id">{{ $st->student_code }}</div>
@@ -277,11 +340,26 @@
                                                 </div>
                                             </a>
                                         </td>
-                                        <td>₹{{ number_format((float) $st->payable_fee, 0) }}</td>
-                                        <td>{{ $st->seat ? $st->seat->seat_number : '—' }}</td>
-                                        <td>{{ $st->computed_next_due->format('d M') }}</td>
                                         <td>
-                                            @if ($st->computed_balance > 0)
+                                            @if ($st->shift)
+                                                <span
+                                                    class="badge bg-info-subtle text-info-emphasis border border-info-subtle">
+                                                    {{ $st->shift->shift_name }}
+                                                </span>
+                                            @else
+                                                <span class="text-muted small">—</span>
+                                            @endif
+                                        </td>
+                                        <td>{{ $st->seat ? $st->seat->seat_number : '—' }}</td>
+                                        <td>
+                                            {{ $st->status === 'pending' ? '—' : '₹' . number_format((float) $st->payable_fee, 0) }}
+                                        </td>
+                                        <td>
+                                            @if ($st->status === 'pending')
+                                                <span class="status pending">
+                                                    <i class="fa-solid fa-circle"></i>Pending Approval
+                                                </span>
+                                            @elseif ($st->computed_balance > 0)
                                                 <span class="status pending">
                                                     <i class="fa-solid fa-circle"></i>Due
                                                     ₹{{ number_format($st->computed_balance, 0) }}
@@ -297,8 +375,7 @@
                                 @empty
                                     <tr>
                                         <td colspan="6" class="text-center py-4 text-muted">
-                                            No students admitted yet. <a href="/library/students/create">Add first
-                                                student</a>
+                                            No students admitted yet. <a href="/library/students/add">Add first student</a>
                                         </td>
                                     </tr>
                                 @endforelse
@@ -375,7 +452,7 @@
 
                         <div class="progress-row">
                             <div class="progress-head">
-                                <span>Seat Utilization</span>
+                                <span>Shift-Hour Utilization</span>
                                 <span>{{ $stats['seatOccupancyPercent'] }}%</span>
                             </div>
                             <div class="progress">
@@ -418,7 +495,7 @@
                     </div>
 
                     <div class="quick-grid">
-                        <a href="/library/students/create" class="quick">
+                        <a href="/library/students/add" class="quick">
                             <div class="quick-icon"><i class="fa-solid fa-user-plus"></i></div>
                             <div class="quick-title">Add Student</div>
                             <div class="quick-sub">Create new student profile</div>

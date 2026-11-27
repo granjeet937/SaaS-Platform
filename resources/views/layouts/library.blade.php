@@ -115,6 +115,15 @@
             display: block;
         }
 
+        .library-brand-fallback {
+            display: none;
+            width: 100%;
+            height: 100%;
+            place-items: center;
+            color: #0d7bf3;
+            font-size: 18px;
+        }
+
         .library-brand-info strong {
             display: block;
             max-width: 170px;
@@ -310,6 +319,12 @@
             place-items: center;
             position: relative;
             transition: .2s ease;
+        }
+
+        .top-icon:hover {
+            background: #f1f7fe;
+            color: var(--blue);
+            border-color: #cfe3f8;
         }
 
         .notification-dot {
@@ -1007,9 +1022,18 @@
                 margin-left: 0;
             }
 
+            .topbar {
+                padding: 10px 14px;
+            }
+
+            .content {
+                padding: 10px 14px 28px;
+            }
+
             .menu-toggle {
                 width: 40px;
                 height: 40px;
+                flex: 0 0 40px;
                 display: grid;
                 place-items: center;
                 border: 1px solid #e4edf6;
@@ -1038,19 +1062,26 @@
                             <i class="fa-solid fa-bars"></i>
                         </button>
 
-                        <div class="search d-flex align-items-center">
+                        <form action="/library/students" method="GET"
+                            class="search d-none d-sm-flex align-items-center">
                             <div class="input-group">
                                 <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
-                                <input type="search" class="form-control"
+                                <input type="search" name="search" class="form-control"
                                     placeholder="Search students, seats, payments...">
                             </div>
-                        </div>
+                        </form>
 
                         <div class="ms-auto d-flex align-items-center gap-2">
-                            <button class="top-icon" title="Quick actions"><i class="fa-solid fa-plus"></i></button>
-                            <button class="top-icon" title="Messages"><i
-                                    class="fa-regular fa-comment-dots"></i></button>
-                            <button class="top-icon" title="Notifications">
+                            <button type="button" class="top-icon coming-soon-btn" data-feature="Quick Actions"
+                                title="Quick actions">
+                                <i class="fa-solid fa-plus"></i>
+                            </button>
+                            <button type="button" class="top-icon coming-soon-btn" data-feature="Messages"
+                                title="Messages">
+                                <i class="fa-regular fa-comment-dots"></i>
+                            </button>
+                            <button type="button" class="top-icon coming-soon-btn" data-feature="Notifications"
+                                title="Notifications">
                                 <span class="notification-dot"></span>
                                 <i class="fa-regular fa-bell"></i>
                             </button>
@@ -1100,6 +1131,8 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         const sidebar = document.getElementById('sidebar');
         const menuToggle = document.getElementById('menuToggle');
@@ -1119,6 +1152,23 @@
 
         menuToggle?.addEventListener('click', openSidebar);
         overlay?.addEventListener('click', closeSidebar);
+
+        // Coming Soon SweetAlert for Topbar Icons
+        document.querySelectorAll('.coming-soon-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const feature = this.getAttribute('data-feature') || 'This feature';
+                Swal.fire({
+                    icon: 'info',
+                    title: 'Coming Soon!',
+                    text: `${feature} will be available in an upcoming LMSP update.`,
+                    confirmButtonText: 'Got it',
+                    confirmButtonColor: '#0f7cff',
+                    customClass: {
+                        popup: 'rounded-4'
+                    }
+                });
+            });
+        });
     </script>
     @stack('scripts')
 </body>
